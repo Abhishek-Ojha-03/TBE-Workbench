@@ -1,0 +1,41 @@
+# Virtual environment
+venv/
+v/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyc
+*$py.class
+
+# Database — contains local evaluation data, do not upload
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment keys — NEVER upload your API key
+.env
+*.env
+
+# Generated output files (large binary files)
+page_images/
+data/generated_excel/
+data/generated_reports/
+generated_excel/
+generated_reports/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE files
+.vscode/
+.idea/
+
+# Uploads / cache
+uploads/
+.pytest_cache/
+*.log
+*.tmp
+
