@@ -75,9 +75,10 @@ class WorkingExcelGenerator:
             b_start = start_col + (b_idx * 3)
             b_end = b_start + 2
 
-            # Merge top header for Bidder Name (Row 5)
+            # Merge top header for Bidder Name & Qualification Status (Row 5)
             ws.merge_cells(start_row=5, start_column=b_start, end_row=5, end_column=b_end)
-            b_cell = ws.cell(row=5, column=b_start, value=f"BIDDER {b_idx+1}: {bidder.name.upper()}")
+            status_tag = (bidder.final_status or "Pending").upper()
+            b_cell = ws.cell(row=5, column=b_start, value=f"BIDDER {b_idx+1}: {bidder.name.upper()}  [{status_tag}]")
             b_cell.font = white_bold
             b_cell.fill = header_fill
             b_cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -198,6 +199,84 @@ class WorkingExcelGenerator:
         for req in other_reqs:
             write_req_row(s_no, req, is_qr_section=False)
             s_no += 1
+
+        # D. Add Final Qualification Summary Block at the bottom of the matrix
+        total_cols = start_col + (len(bidders) * 3) - 1
+
+        # 1. Blank separator row
+        current_row += 1
+        for c in range(1, total_cols + 1):
+            ws.cell(row=current_row, column=c).fill = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
+        ws.row_dimensions[current_row].height = 6
+        current_row += 1
+
+        # 2. Compliance Score Row
+        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=5)
+        score_hdr = ws.cell(row=current_row, column=1, value="TOTAL CLAUSES COMPLIED (ACCURACY)")
+        score_hdr.font = bold_font
+        score_hdr.alignment = Alignment(horizontal="right", vertical="center")
+        score_hdr.fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+
+        active_req_ids = [r.id for r in all_reqs]
+        total_req_count = len(active_req_ids)
+
+        for b in bidders:
+            b_status_col = bidder_col_map[b.id]
+            b_findings = db.query(Finding).filter(Finding.bidder_id == b.id, Finding.requirement_id.in_(active_req_ids)).all()
+            comp_cnt = sum(1 for f in b_findings if (f.engineer_status or f.ai_status) == "Complied")
+            not_comp_cnt = sum(1 for f in b_findings if (f.engineer_status or f.ai_status) == "Not Complied")
+            pct = round((comp_cnt / total_req_count) * 100, 1) if total_req_count > 0 else 0
+
+            # Merge 3 columns per bidder for score
+            b_s = b_status_col - 1
+            b_e = b_status_col + 1
+            ws.merge_cells(start_row=current_row, start_column=b_s, end_row=current_row, end_column=b_e)
+            sc_cell = ws.cell(row=current_row, column=b_s, value=f"{comp_cnt}/{total_req_count} Complied ({pct}%)")
+            sc_cell.font = bold_font
+            sc_cell.alignment = Alignment(horizontal="center", vertical="center")
+            sc_cell.fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+            for col_i in range(b_s, b_e + 1):
+                ws.cell(row=current_row, column=col_i).border = thin_border
+
+        for c_i in range(1, 6):
+            ws.cell(row=current_row, column=c_i).border = thin_border
+        ws.row_dimensions[current_row].height = 24
+        current_row += 1
+
+        # 3. Final TBE Status Row (The Primary Verdict!)
+        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=5)
+        fin_hdr = ws.cell(row=current_row, column=1, value="FINAL TBE QUALIFICATION RESULT")
+        fin_hdr.font = Font(name="Calibri", size=11, bold=True, color="1E3A8A")
+        fin_hdr.alignment = Alignment(horizontal="right", vertical="center")
+        fin_hdr.fill = PatternFill(start_color="E2E8F0", end_color="E2E8F0", fill_type="solid")
+
+        for b in bidders:
+            b_status_col = bidder_col_map[b.id]
+            f_status = (b.final_status or "Pending").strip()
+
+            b_s = b_status_col - 1
+            b_e = b_status_col + 1
+            ws.merge_cells(start_row=current_row, start_column=b_s, end_row=current_row, end_column=b_e)
+            st_cell = ws.cell(row=current_row, column=b_s, value=f_status.upper())
+            st_cell.alignment = Alignment(horizontal="center", vertical="center")
+
+            if f_status == "Qualified":
+                st_cell.fill = PatternFill(start_color="D4EDDA", end_color="D4EDDA", fill_type="solid")
+                st_cell.font = Font(name="Calibri", size=11, bold=True, color="155724")
+            elif f_status == "Not Qualified":
+                st_cell.fill = PatternFill(start_color="F8D7DA", end_color="F8D7DA", fill_type="solid")
+                st_cell.font = Font(name="Calibri", size=11, bold=True, color="721C24")
+            else:
+                st_cell.fill = PatternFill(start_color="FFF3CD", end_color="FFF3CD", fill_type="solid")
+                st_cell.font = Font(name="Calibri", size=11, bold=True, color="856404")
+
+            for col_i in range(b_s, b_e + 1):
+                ws.cell(row=current_row, column=col_i).border = thin_border
+
+        for c_i in range(1, 6):
+            ws.cell(row=current_row, column=c_i).border = thin_border
+        ws.row_dimensions[current_row].height = 28
+        current_row += 1
 
         # 4. Save file
         if not output_filename:

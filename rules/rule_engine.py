@@ -89,12 +89,23 @@ def compute_bidder_status(findings: List[Finding]) -> str:
 def update_bidder_qualification_status(db: Session, bidder_id: int) -> str:
     """
     Calculates and persists the updated qualification status for a bidder in SQLite.
+    Evaluates findings strictly against the active baseline requirements for the tender.
     """
+    from db.baseline_service import get_latest_baseline
     bidder = db.query(Bidder).filter(Bidder.id == bidder_id).first()
     if not bidder:
         raise ValueError(f"Bidder {bidder_id} not found.")
 
-    findings = db.query(Finding).filter(Finding.bidder_id == bidder_id).all()
+    latest_b = get_latest_baseline(db, bidder.tender_id)
+    if latest_b:
+        active_req_ids = [r.id for r in latest_b.requirements if not r.not_applicable]
+        findings = db.query(Finding).filter(
+            Finding.bidder_id == bidder_id,
+            Finding.requirement_id.in_(active_req_ids)
+        ).all()
+    else:
+        findings = db.query(Finding).filter(Finding.bidder_id == bidder_id).all()
+
     status = compute_bidder_status(findings)
     bidder.final_status = status
     db.commit()

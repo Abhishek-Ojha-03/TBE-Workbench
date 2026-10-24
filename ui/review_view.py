@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from PIL import Image
 
 from db.models import Tender, Bidder, Finding, Requirement, Evidence, AuditLog, Page
+from db.baseline_service import get_latest_baseline
 from db.audit_service import (
     confirm_finding,
     override_finding,
@@ -37,9 +38,18 @@ def render_review_screen(db: Session, tender: Tender):
 
     st.info(f"**Bidder:** {selected_bidder.name} | **Current Qualification Status:** `{selected_bidder.final_status}`")
 
+    latest_b = get_latest_baseline(db, tender.id)
+    if not latest_b:
+        st.warning("No active baseline found for this tender.")
+        return
+
+    active_req_ids = [r.id for r in latest_b.requirements if not r.not_applicable]
     findings = (
         db.query(Finding)
-        .filter(Finding.bidder_id == selected_bidder.id)
+        .filter(
+            Finding.bidder_id == selected_bidder.id,
+            Finding.requirement_id.in_(active_req_ids)
+        )
         .all()
     )
 
@@ -74,10 +84,10 @@ def render_review_screen(db: Session, tender: Tender):
                     st.markdown(f"📄 **Cited Evidence (Page {page.page_number if page else 'N/A'}):**")
                     st.info(f'"{ev.quoted_text}"')
 
-                    # Side-by-side image verification rule if read by Vision LLM
-                    if page and page.read_by == "LLM" and page.image_path and os.path.exists(page.image_path):
-                        st.caption("🔍 **Original Document Scan (Check numbers & units):**")
-                        st.image(page.image_path, width=320)
+                    # Side-by-side visual document preview
+                    if page and page.image_path and os.path.exists(page.image_path):
+                        st.caption("🔍 **Original Document Preview (Check numbers & ratings):**")
+                        st.image(page.image_path, width=340)
                 else:
                     st.warning("No verifiable quote found in submitted documents.")
 

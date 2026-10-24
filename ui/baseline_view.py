@@ -38,13 +38,36 @@ def render_baseline_screens(db: Session, tender: Tender):
     # --- Screen 1: Requirements Baseline ---
     with tab_reqs:
         st.subheader("Technical & Qualification Requirements")
-        if not latest_baseline:
-            st.warning("No baseline requirements found yet. Upload the tender specification first (Step 4).")
+        
+        # Version History Selector
+        all_versions = (
+            db.query(BaselineVersion)
+            .filter(BaselineVersion.tender_id == tender.id)
+            .order_by(BaselineVersion.version_number.desc())
+            .all()
+        )
+
+        if not all_versions:
+            st.warning("No baseline requirements found yet. Upload the tender specification first from the Specification screen.")
         else:
-            st.info(f"Active Baseline Version: **v{latest_baseline.version_number}** (Approved: {latest_baseline.approved_at.strftime('%d-%b-%Y %H:%M')})")
-            
+            c_v1, c_v2 = st.columns([2, 1])
+            with c_v1:
+                version_map = {v.version_number: v for v in all_versions}
+                selected_v_num = st.selectbox(
+                    "Select Baseline Version to View / Edit:",
+                    options=list(version_map.keys()),
+                    format_func=lambda num: f"Version {num} ({'Active / Latest' if num == latest_baseline.version_number else 'Archived History'}) — Approved: {version_map[num].approved_at.strftime('%d-%b-%Y %H:%M')}",
+                    key="sel_baseline_version"
+                )
+                active_v_obj = version_map[selected_v_num]
+            with c_v2:
+                if selected_v_num == latest_baseline.version_number:
+                    st.success(f"🟢 Active Baseline for Bidder Evaluation: **v{selected_v_num}**")
+                else:
+                    st.warning(f"🕒 Viewing Historical Version: **v{selected_v_num}** (Read/Branch)")
+
             # Fetch requirements ordered: QR first
-            reqs = get_baseline_requirements(db, latest_baseline.id)
+            reqs = get_baseline_requirements(db, active_v_obj.id)
             
             # Convert to DataFrame for st.data_editor
             df_data = []
@@ -59,6 +82,8 @@ def render_baseline_screens(db: Session, tender: Tender):
             
             df = pd.DataFrame(df_data)
 
+            st.caption("💡 **Tip:** Edit text in any cell, check/uncheck QR or Mark N/A, or click the **'+' button at the bottom of the table** to manually insert new requirements.")
+
             # Editable grid using Streamlit data_editor
             edited_df = st.data_editor(
                 df,
@@ -71,17 +96,50 @@ def render_baseline_screens(db: Session, tender: Tender):
                 },
                 num_rows="dynamic",
                 use_container_width=True,
-                key=f"editor_baseline_v{latest_baseline.version_number}"
+                key=f"editor_baseline_v{active_v_obj.version_number}"
             )
 
-            col1, col2 = st.columns([1, 4])
+            col1, col2 = st.columns([1, 3])
             with col1:
-                if st.button("💾 Save as New Version", type="primary", use_container_width=True):
-                    # Convert edited DataFrame back to dict records
-                    new_records = edited_df.to_dict(orient="records")
-                    new_v = save_baseline_edits(db, tender.id, new_records)
-                    st.success(f"Successfully saved Baseline Version {new_v.version_number}! Version {latest_baseline.version_number} preserved.")
-                    st.rerun()
+                save_label = f"💾 Save Edits as New Version (v{latest_baseline.version_number + 1})"
+                if st.button(save_label, type="primary", use_container_width=True):
+                    # Filter out empty rows added via '+'
+                    new_records = [
+                        r for r in edited_df.to_dict(orient="records")
+                        if (r.get("text") and str(r.get("text")).strip())
+                    ]
+                    if not new_records:
+                        st.error("Cannot save an empty baseline. Please enter requirement descriptions.")
+                    else:
+                        new_v = save_baseline_edits(db, tender.id, new_records)
+                        st.success(f"Successfully saved Baseline Version {new_v.version_number}! Past version v{active_v_obj.version_number} is preserved in history.")
+                        st.rerun()
+
+            with col2:
+                # Add Single Requirement Quick Form
+                with st.expander("➕ Quick Add Single Requirement / Specification Clause", expanded=False):
+                    with st.form("quick_add_req_form", clear_on_submit=True):
+                        qa_col1, qa_col2 = st.columns([1, 3])
+                        with qa_col1:
+                            q_clause = st.text_input("Clause No.", placeholder="e.g. 6.1 or QR-4")
+                            q_is_qr = st.checkbox("Qualification Req (QR)")
+                        with qa_col2:
+                            q_text = st.text_area("Requirement Text / Specification Description", placeholder="Enter full requirement clause...")
+                        
+                        if st.form_submit_button("➕ Append to Baseline"):
+                            if not q_text.strip():
+                                st.error("Requirement description cannot be empty.")
+                            else:
+                                current_records = edited_df.to_dict(orient="records")
+                                current_records.append({
+                                    "is_QR": q_is_qr,
+                                    "clause": q_clause.strip(),
+                                    "text": q_text.strip(),
+                                    "not_applicable": False
+                                })
+                                new_v = save_baseline_edits(db, tender.id, current_records)
+                                st.success(f"Added clause and created Baseline Version {new_v.version_number}!")
+                                st.rerun()
 
     # --- Screen 2: Mandatory Documents ---
     with tab_mandatory:

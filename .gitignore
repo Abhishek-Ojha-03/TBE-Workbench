@@ -38,4 +38,7 @@ uploads/
 .pytest_cache/
 *.log
 *.tmp
+~$*
+*.lnk
+test_data/
 

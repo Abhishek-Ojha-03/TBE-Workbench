@@ -29,9 +29,15 @@ class SpecificationExtractionResult(BaseModel):
 
 class VerificationFinding(BaseModel):
     """Schema for Step 7 Bidder verification finding per cell."""
+    clause_id: Optional[str] = Field(default=None, description="Clause identifier, e.g. '2.1' or requirement text preview")
     status: str = Field(description="Suggested status: 'complied', 'not_complied', or 'needs_human_review'")
     document: str = Field(description="Name of the document cited as evidence")
     page: int = Field(description="Page number where the evidence is found")
     quote: str = Field(description="Verbatim exact sentence cited as proof from that page")
     reason: str = Field(description="Technical rationale explaining why the evidence complies or fails")
+
+
+class BatchVerificationResult(BaseModel):
+    """Schema for batch evaluation of multiple requirements in a single prompt."""
+    evaluations: List[VerificationFinding] = Field(description="List of verification findings for each requirement")
 

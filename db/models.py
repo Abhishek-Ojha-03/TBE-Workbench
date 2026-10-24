@@ -85,14 +85,18 @@ class Document(Base):
     """
     Document: An uploaded file belonging to a bidder or tender specification.
     document_type: 'Technical Offer', 'Deviation Sheet', 'Type Test Report', 'Specification', etc.
+    tender_id: Set for Specification documents (bidder_id=NULL) to link them to the correct tender.
+    md5_hash: MD5 hash of the file bytes. Used to skip re-OCR for identical files (hash cache).
     """
     __tablename__ = "documents"
 
     id = Column(Integer, primary_key=True, index=True)
     bidder_id = Column(Integer, ForeignKey("bidders.id"), nullable=True)  # Null if it's the Tender Specification
+    tender_id = Column(Integer, ForeignKey("tenders.id"), nullable=True)  # Set for Specification docs
     file_name = Column(String(300), nullable=False)
     file_path = Column(String(500), nullable=True)
     document_type = Column(String(100), nullable=True)
+    md5_hash = Column(String(32), nullable=True, index=True)  # MD5 hash for cache lookup
 
     # Relationships
     bidder = relationship("Bidder", back_populates="documents")
