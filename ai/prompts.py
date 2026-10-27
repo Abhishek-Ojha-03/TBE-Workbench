@@ -11,7 +11,9 @@ Extract all:
 2. Qualification Requirements (QR): Identify these STRICTLY by explicit headings like "Qualification Criteria", "Technical Qualification", "QR", "Eligibility", "Financial Criteria", "Past Experience". Do NOT guess a requirement as QR unless it falls under such an explicit heading or clause.
 3. Mandatory Documents: e.g. "Technical Offer", "Deviation Sheet", "Audited balance sheets", "OEM Authorization", "Type test reports", "Guaranteed Technical Particulars".
 4. Sentences & Clauses: Extract each numbered or lettered clause as one complete requirement item. Keep the clause and its full text intact. Do NOT split a single clause (such as clause 2.3 or 2.4) into multiple fragmented sub-rows, and do NOT duplicate requirements already mentioned.
-5. If technical parameters are presented in a table or list under a clause (e.g. Rated voltage, Rated breaking current, Rated frequency, Degree of protection, Auxiliary supply voltage), extract EACH individual parameter as its own distinct requirement row with its required value.
+5. If technical parameters are presented in a table or list under a clause or lead-in sentence (e.g. "The equipment shall comply with the following technical parameters:"):
+   - Extract EACH individual parameter as its own distinct requirement row with its parameter name and required value (e.g. "Rated voltage: 11 kV", "Rated short circuit breaking current: 25 kA for 3 seconds").
+   - Do NOT extract the lead-in heading or introductory sentence itself (e.g. do NOT extract "The equipment shall comply with the following technical parameters:") as a separate standalone requirement. Use it only as context for the parameters underneath.
 
 Return a valid JSON object matching this schema:
 {{
@@ -57,6 +59,11 @@ Rules:
    - Specific warranty, guarantee, or performance bank guarantee terms (e.g. 18 months / 24 months, 10% PBG). Do NOT treat blanket deviation sheet as proof of guarantee if no dedicated guarantee undertaking exists.
    - Specific type tests or ratings that must be backed by test reports or GTP.
    Never mark "complied" based solely on a blanket statement or NIL deviation sheet when concrete documentary evidence is required.
+8. CRITICAL TABLE READING & ANTI-HALLUCINATION RULE (GUARANTEED TECHNICAL PARTICULARS):
+   - When reading GTP tables (e.g. Sl No, Parameter Description, Required Value, Guaranteed by Bidder):
+     You MUST read the value from the "Guaranteed by Bidder" / "Offered" column, NOT from the "Required Value" column.
+   - If the bidder guaranteed value equals or exceeds the required value (e.g. required "25 kA for 3 seconds" and guaranteed "25 kA for 3 seconds"), the status IS "complied".
+   - NEVER claim a bidder offered a lower or deviating value (such as "20 kA") unless the text explicitly and unambiguously appears under their offered/guaranteed particulars or in their Deviation Sheet. NEVER invent or hallucinate deviation figures!
 
 Return valid JSON conforming to this schema:
 {{
@@ -95,6 +102,11 @@ Rules:
    - For requirement "Any deviation from the above parameters shall be listed in the Deviation Sheet. A Deviation Sheet marked NIL shall be taken to mean full compliance": If the Deviation Sheet contains the word "NIL" or "NO DEVIATIONS", quote "NIL" or "We confirm that there are NO DEVIATIONS from the technical specification" directly from the Deviation Sheet and output "complied". Do NOT quote the tender specification text itself.
    - Specific warranty, guarantee, or PBG terms: Must be backed by the guarantee undertaking document.
    - Do NOT mark "complied" based solely on a blanket statement when concrete documentary proof is absent.
+10. CRITICAL TABLE READING & ANTI-HALLUCINATION RULE (GUARANTEED TECHNICAL PARTICULARS):
+   - When reading GTP tables (e.g. Sl No, Parameter Description, Required Value, Guaranteed by Bidder):
+     You MUST read the value from the "Guaranteed by Bidder" / "Offered" column, NOT from the "Required Value" column.
+   - If the bidder guaranteed value equals or exceeds the required value (e.g. required "25 kA for 3 seconds" and guaranteed "25 kA for 3 seconds"), the status IS "complied".
+   - NEVER claim a bidder offered a lower or deviating value (such as "20 kA") unless the text explicitly and unambiguously appears under their offered/guaranteed particulars or in their Deviation Sheet. NEVER invent or hallucinate deviation figures!
 
 Return valid JSON conforming strictly to this schema:
 {{
