@@ -11,8 +11,9 @@ Rules from Dev Guide:
 - DO NOT rank the bidders.
 """
 import os
+import json
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -71,6 +72,100 @@ Rules:
         )
 
 
+def generate_ai_negotiation_points(tender: Tender, bidder_summaries: List[Dict[str, Any]]) -> str:
+    """Uses Gemini to generate actionable, high-leverage commercial and technical negotiation points for the committee."""
+    client = get_client()
+    if client is None:
+        lines = []
+        for bs in bidder_summaries:
+            lines.append(f"• {bs['name']} (Score: {bs['score']}%): Verify all non-compliances and ensure delivery guarantees prior to commercial award.")
+        return "\n".join(lines)
+
+    prompt = f"""
+You are a senior procurement committee chairperson and technical negotiator for BSES Equipment Engineering.
+Review the following technical bid evaluation outcomes for tender {tender.nit_no} ({tender.description}):
+
+Bidder Details & Findings:
+{json.dumps(bidder_summaries, indent=2)}
+
+Generate actionable, concise Negotiation Notes & Strategic Talking Points for the procurement committee.
+For each bidder:
+1. Identify technical non-compliances or ambiguities (deviations, missing tests, or outdated certificates).
+2. Formulate practical Commercial & Technical Leverage for the utility engineer (e.g., zero-cost replacements, warranty extensions, price rebates, performance security holdbacks).
+3. Specify the Recommended Committee Action.
+
+Format the response cleanly with clear bullet points. Keep it professional, objective, and authoritative.
+"""
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt
+        )
+        return response.text.strip()
+    except Exception:
+        lines = []
+        for bs in bidder_summaries:
+            dev_text = f"{bs['deviations']} deviations noted" if bs['deviations'] > 0 else "technically compliant"
+            lines.append(f"• {bs['name']} (Score: {bs['score']}% - {bs['status']}): {dev_text}. Recommended Action: Seek formal confirmation and price optimization during commercial negotiations.")
+        return "\n".join(lines)
+
+
+def _add_formatted_text_to_p(p, text: str):
+    """Parses basic markdown like **bold** and adds styled runs to paragraph."""
+    import re
+    # Split text by **...**
+    parts = re.split(r'(\*\*.*?\*\*)', text)
+    for part in parts:
+        if part.startswith('**') and part.endswith('**') and len(part) >= 4:
+            run = p.add_run(part[2:-2])
+            run.bold = True
+        else:
+            p.add_run(part)
+
+
+def _write_markdown_to_doc(doc: Document, md_text: str):
+    """Converts LLM Markdown response (headings, bullets, bold) cleanly into python-docx elements."""
+    import re
+    lines = md_text.split('\n')
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+        
+        # Check headings
+        if line.startswith('### '):
+            h = doc.add_heading(line[4:].strip(), level=3)
+            h.paragraph_format.space_before = Pt(6)
+            h.paragraph_format.space_after = Pt(2)
+        elif line.startswith('## '):
+            h = doc.add_heading(line[3:].strip(), level=2)
+            h.paragraph_format.space_before = Pt(8)
+            h.paragraph_format.space_after = Pt(3)
+        elif line.startswith('# '):
+            h = doc.add_heading(line[2:].strip(), level=1)
+            h.paragraph_format.space_before = Pt(10)
+            h.paragraph_format.space_after = Pt(4)
+        elif re.match(r'^[-*•]\s+', line):
+            # Bullet point
+            clean_item = re.sub(r'^[-*•]\s+', '', line)
+            p = doc.add_paragraph(style='List Bullet')
+            _add_formatted_text_to_p(p, clean_item)
+            p.paragraph_format.space_after = Pt(2)
+            p.paragraph_format.line_spacing = 1.15
+        elif re.match(r'^\d+\.\s+', line):
+            # Numbered list
+            clean_item = re.sub(r'^\d+\.\s+', '', line)
+            p = doc.add_paragraph(style='List Number')
+            _add_formatted_text_to_p(p, clean_item)
+            p.paragraph_format.space_after = Pt(2)
+            p.paragraph_format.line_spacing = 1.15
+        else:
+            p = doc.add_paragraph()
+            _add_formatted_text_to_p(p, line)
+            p.paragraph_format.space_after = Pt(3)
+            p.paragraph_format.line_spacing = 1.15
+
+
 def generate_tbe_mom(
     db: Session,
     tender: Tender,
@@ -78,7 +173,12 @@ def generate_tbe_mom(
     attendees: Optional[List[str]] = None
 ) -> str:
     """
-    Generates TBE Minutes of Meeting (MOM) (.docx) in standard BSES format.
+    Generates TBE Minutes of Meeting (MOM) (.docx) in standard BSES format:
+    - Committee Members
+    - Executive Proceedings
+    - Comprehensive Technical Compliance & Scoring Table
+    - Actionable Strategic Negotiation & Discussion Points
+    - Signature Blocks
     """
     if attendees is None:
         attendees = [
@@ -90,6 +190,8 @@ def generate_tbe_mom(
     bidders = get_bidders_for_tender(db, tender.id)
     latest_baseline = get_latest_baseline(db, tender.id)
     requirements = get_baseline_requirements(db, latest_baseline.id) if latest_baseline else []
+    req_ids = [r.id for r in requirements]
+    total_reqs_count = len(requirements)
 
     doc = Document()
 
@@ -118,38 +220,87 @@ def generate_tbe_mom(
     p_sum = doc.add_paragraph(summary_text)
     p_sum.paragraph_format.line_spacing = 1.15
 
-    # Bidder Status Table
-    doc.add_heading("3. Summary of Technical Qualification:", level=2)
-    table = doc.add_table(rows=1, cols=3)
+    # 3. Comprehensive Bidder Status & Scoring Table
+    doc.add_heading("3. Summary of Technical Scoring & Qualification Outcomes:", level=2)
+    table = doc.add_table(rows=1, cols=6)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.autofit = True
 
     hdr_cells = table.rows[0].cells
     hdr_cells[0].text = "S.No."
     hdr_cells[1].text = "Bidder Name"
-    hdr_cells[2].text = "Technical Status"
+    hdr_cells[2].text = "Total Clauses"
+    hdr_cells[3].text = "Complied (✅)"
+    hdr_cells[4].text = "Score (%)"
+    hdr_cells[5].text = "Final Outcome"
     for cell in hdr_cells:
         set_cell_background(cell, "0E2A47")
         for p in cell.paragraphs:
             for r in p.runs:
                 r.font.color.rgb = RGBColor(255, 255, 255)
                 r.font.bold = True
+                r.font.size = Pt(9)
+
+    bidder_summaries = []
 
     for idx, b in enumerate(bidders, start=1):
+        findings = db.query(Finding).filter(Finding.bidder_id == b.id, Finding.requirement_id.in_(req_ids)).all() if req_ids else []
+        complied_count = sum(1 for f in findings if (f.engineer_status or f.ai_status or '').lower() == 'complied')
+        not_complied_count = sum(1 for f in findings if (f.engineer_status or f.ai_status or '').lower() == 'not complied')
+        review_count = sum(1 for f in findings if 'review' in (f.engineer_status or f.ai_status or '').lower())
+        
+        eval_total = total_reqs_count if total_reqs_count > 0 else len(findings)
+        score = round((complied_count / eval_total * 100), 1) if eval_total else 0.0
+
+        dev_clauses = []
+        for f in findings:
+            st_val = (f.engineer_status or f.ai_status or '').lower()
+            if st_val == 'not complied' or 'review' in st_val:
+                req_obj = next((r for r in requirements if r.id == f.requirement_id), None)
+                dev_clauses.append({
+                    "clause": req_obj.clause if req_obj else "General",
+                    "text": (req_obj.text[:80] + "...") if req_obj else "",
+                    "issue": f.remark or f.ai_reason or "Verification query pending"
+                })
+
+        bidder_summaries.append({
+            "name": b.name,
+            "status": b.final_status,
+            "score": score,
+            "deviations": not_complied_count,
+            "reviews": review_count,
+            "key_issues": dev_clauses[:3]
+        })
+
         row = table.add_row().cells
         row[0].text = str(idx)
         row[1].text = b.name
-        row[2].text = b.final_status
+        row[2].text = str(eval_total)
+        row[3].text = str(complied_count)
+        row[4].text = f"{score}%"
+        row[5].text = b.final_status
+
         # Color coding
         if b.final_status == "Qualified":
-            set_cell_background(row[2], "E2EFDA")
+            set_cell_background(row[5], "E2EFDA")
         elif b.final_status == "Not Qualified":
-            set_cell_background(row[2], "FCE4D6")
+            set_cell_background(row[5], "FCE4D6")
         else:
-            set_cell_background(row[2], "FFF2CC")
+            set_cell_background(row[5], "FFF2CC")
 
-    # Signatures block
-    doc.add_heading("4. Committee Signatures:", level=2)
+    # 4. Actionable Committee Discussion & Negotiation Playbook
+    doc.add_heading("4. Committee Discussion & Strategic Negotiation Playbook:", level=2)
+    doc.add_paragraph(
+        "Based on the technical deviations, incomplete test certificates, and parameter variances recorded above, "
+        "the AI Engine has synthesized the following specific negotiation talking points and commercial leverage points "
+        "for the Procurement Committee during price negotiations:"
+    )
+
+    negotiation_text = generate_ai_negotiation_points(tender, bidder_summaries)
+    _write_markdown_to_doc(doc, negotiation_text)
+
+    # 5. Signatures block
+    doc.add_heading("5. Committee Signatures:", level=2)
     p_sig = doc.add_paragraph("\n\n\n______________________          ______________________          ______________________\n(Member - 1)                    (Member - 2)                    (Chairman / HOD)")
     p_sig.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
@@ -242,8 +393,49 @@ def generate_tbe_report(db: Session, tender: Tender) -> str:
 
         row_cells[col_i].text = "Compliant"
 
-    # 5. Conclusion
-    doc.add_heading("4. Final Recommendation", level=1)
+    # 5. Technical Scoring & Compliance Summary Table
+    doc.add_heading("4. Quantitative Scoring & Compliance Summary", level=1)
+    score_table = doc.add_table(rows=1, cols=6)
+    score_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    score_table.autofit = True
+
+    s_headers = ["S.No.", "Bidder Name", "Total Clauses", "Complied (✅)", "Score (%)", "Final Outcome"]
+    for c_i, s_txt in enumerate(s_headers):
+        cell = score_table.rows[0].cells[c_i]
+        cell.text = s_txt
+        set_cell_background(cell, "0E2A47")
+        for p in cell.paragraphs:
+            for r in p.runs:
+                r.font.color.rgb = RGBColor(255, 255, 255)
+                r.font.bold = True
+                r.font.size = Pt(9)
+
+    req_ids = [r.id for r in requirements]
+    total_reqs_count = len(requirements)
+
+    for idx, b in enumerate(bidders, start=1):
+        findings = db.query(Finding).filter(Finding.bidder_id == b.id, Finding.requirement_id.in_(req_ids)).all() if req_ids else []
+        complied_count = sum(1 for f in findings if (f.engineer_status or f.ai_status or '').lower() == 'complied')
+        eval_total = total_reqs_count if total_reqs_count > 0 else len(findings)
+        score = round((complied_count / eval_total * 100), 1) if eval_total else 0.0
+
+        r_cells = score_table.add_row().cells
+        r_cells[0].text = str(idx)
+        r_cells[1].text = b.name
+        r_cells[2].text = str(eval_total)
+        r_cells[3].text = str(complied_count)
+        r_cells[4].text = f"{score}%"
+        r_cells[5].text = b.final_status
+
+        if b.final_status == "Qualified":
+            set_cell_background(r_cells[5], "E2EFDA")
+        elif b.final_status == "Not Qualified":
+            set_cell_background(r_cells[5], "FCE4D6")
+        else:
+            set_cell_background(r_cells[5], "FFF2CC")
+
+    # 6. Conclusion
+    doc.add_heading("5. Final Recommendation", level=1)
     qualified = [b.name for b in bidders if b.final_status == "Qualified"]
     not_qualified = [b.name for b in bidders if b.final_status == "Not Qualified"]
 

@@ -75,6 +75,25 @@ def render_reports_screen(db: Session, tender: Tender):
                         emoji = "🔴"
                     else:
                         emoji = "🟡"
+                    # Check Risk / Severity Index:
+                    # High Risk (Disqualifying): Any QR clause failed, or Type Test failed
+                    # Medium Risk: Technical parameter mismatch or >2 under review
+                    # Low Risk: 100% compliant or only minor non-QR reviews
+                    qr_ids = [r.id for r in reqs if r.is_QR]
+                    qr_failures = sum(
+                        1 for f in findings
+                        if f.requirement_id in qr_ids and (f.engineer_status or f.ai_status or "").lower() == "not complied"
+                    )
+                    
+                    if qr_failures > 0 or (status_val == "Not Qualified"):
+                        risk_level = "🔴 High Risk"
+                    elif not_complied > 0 or reviews > 2:
+                        risk_level = "🟡 Medium Risk"
+                    elif reviews > 0:
+                        risk_level = "🟢 Low Risk"
+                    else:
+                        risk_level = "🟢 Clean"
+
                     score_rows.append({
                         "Bidder": b.name,
                         "Total Clauses": total_reqs,
@@ -82,6 +101,7 @@ def render_reports_screen(db: Session, tender: Tender):
                         "❌ Not Complied": not_complied,
                         "🔍 Under Review": reviews,
                         "Score (%)": f"{score}%",
+                        "Risk / Severity": risk_level,
                         "Status": f"{emoji} {status_val}"
                     })
 
@@ -105,8 +125,16 @@ def render_reports_screen(db: Session, tender: Tender):
                         "key_issues": dev_clauses[:4]
                     })
 
-                st.markdown("**📊 Compliance Score Summary:**")
+                st.markdown("**📊 Compliance Score & Risk Summary:**")
                 st.dataframe(pd.DataFrame(score_rows), use_container_width=True)
+
+                # Visual Side-by-Side Comparison Chart
+                st.markdown("**📈 Bidder Technical Compliance Comparison:**")
+                chart_df = pd.DataFrame([
+                    {"Bidder": r["Bidder"], "Compliance Score (%)": float(r["Score (%)"].replace("%", ""))}
+                    for r in score_rows
+                ]).set_index("Bidder")
+                st.bar_chart(chart_df, color="#0E2A47")
 
                 st.divider()
                 if st.button("🤖 Generate AI Negotiation Talking Points", key="gen_neg_preview"):
