@@ -33,8 +33,8 @@ def render_reports_screen(db: Session, tender: Tender):
         - Signature blocks
         """)
 
-        # --- Negotiation Playbook Preview ---
-        with st.expander("🤝 Preview: Compliance Scores & Negotiation Playbook", expanded=False):
+        # --- Compliance Scores & Visual Comparison ---
+        with st.expander("📊 Preview: Compliance Scores & Risk Matrix", expanded=False):
             from db.baseline_service import get_latest_baseline, get_baseline_requirements
             from db.models import Finding, Requirement
             import pandas as pd
@@ -135,17 +135,6 @@ def render_reports_screen(db: Session, tender: Tender):
                     for r in score_rows
                 ]).set_index("Bidder")
                 st.bar_chart(chart_df, color="#0E2A47")
-
-                st.divider()
-                if st.button("🤖 Generate AI Negotiation Talking Points", key="gen_neg_preview"):
-                    from outputs.docx_generator import generate_ai_negotiation_points
-                    with st.spinner("AI is generating negotiation talking points for the committee..."):
-                        neg_text = generate_ai_negotiation_points(tender, bidder_summaries)
-                        st.session_state["negotiation_preview_text"] = neg_text
-
-                if st.session_state.get("negotiation_preview_text"):
-                    st.markdown("**📋 AI-Generated Negotiation Playbook:**")
-                    st.markdown(st.session_state["negotiation_preview_text"])
 
         with st.expander("⚙️ Edit Committee Members & Venue", expanded=False):
             venue = st.text_input("Meeting Venue", value="Conference Room 2, Engineering Division, BSES Bhawan, Nehru Place, New Delhi", key="mom_venue")
