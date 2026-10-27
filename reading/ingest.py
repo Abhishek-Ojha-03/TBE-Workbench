@@ -153,6 +153,16 @@ def ingest_pdf_document(
         page = pdf_doc[page_idx]
         page_num = page_idx + 1
         raw_text = page.get_text("text").strip()
+
+        # Render high-quality 150 DPI page preview image for crisp UI inspection
+        image_filename = f"doc_{doc_record.id}_p{page_num}.png"
+        image_path = os.path.join(PAGE_IMAGES_DIR, image_filename)
+        try:
+            pix = page.get_pixmap(dpi=150)
+            pix.save(image_path)
+        except Exception:
+            image_path = None
+
         if len(raw_text) >= TEXT_THRESHOLD:
             # Digital selectable text - instant
             p = Page(
@@ -160,17 +170,12 @@ def ingest_pdf_document(
                 page_number=page_num,
                 text=raw_text,
                 read_by="PyMuPDF",
-                image_path=None
+                image_path=image_path
             )
             db.add(p)
             page_records.append(p)
         else:
-            # Render page to 100 DPI Grayscale JPEG
-            pix = page.get_pixmap(dpi=100, colorspace=fitz.csGRAY)
-            image_filename = f"doc_{doc_record.id}_p{page_num}.jpg"
-            image_path = os.path.join(PAGE_IMAGES_DIR, image_filename)
-            pix.save(image_path)
-            img_bytes = pix.tobytes("jpeg")
+            img_bytes = pix.tobytes("jpeg") if pix else None
             pages_to_ocr.append((page_num, img_bytes, image_path, raw_text))
 
     # Process scanned pages in batches of 4 (Option 2: 4-page batching)

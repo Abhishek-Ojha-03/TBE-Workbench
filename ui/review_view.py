@@ -87,7 +87,7 @@ def render_review_screen(db: Session, tender: Tender):
                     # Side-by-side visual document preview
                     if page and page.image_path and os.path.exists(page.image_path):
                         st.caption("🔍 **Original Document Preview (Check numbers & ratings):**")
-                        st.image(page.image_path, width=340)
+                        st.image(page.image_path, use_container_width=True)
                 else:
                     st.warning("No verifiable quote found in submitted documents.")
 
