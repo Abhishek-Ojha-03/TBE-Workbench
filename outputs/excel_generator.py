@@ -279,9 +279,11 @@ class WorkingExcelGenerator:
         current_row += 1
 
         # 4. Save file
+        safe_nit = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in (tender.nit_no or "TENDER"))
         if not output_filename:
-            output_filename = f"TBE_Working_{tender.nit_no}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            output_filename = f"TBE_Working_{safe_nit}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         output_path = os.path.join(OUTPUTS_DIR, output_filename)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
         wb.save(output_path)
         wb.close()
 

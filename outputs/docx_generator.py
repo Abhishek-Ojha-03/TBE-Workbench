@@ -351,7 +351,9 @@ def generate_tbe_mom(
     p_sig = doc.add_paragraph("\n\n\n______________________          ______________________          ______________________\n(Member - 1)                    (Member - 2)                    (Chairman / HOD)")
     p_sig.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    out_file = os.path.join(DOCS_OUTPUT_DIR, f"TBE_MOM_{tender.nit_no}.docx")
+    safe_nit = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in (tender.nit_no or "TENDER"))
+    out_file = os.path.join(DOCS_OUTPUT_DIR, f"TBE_MOM_{safe_nit}.docx")
+    os.makedirs(os.path.dirname(out_file), exist_ok=True)
     doc.save(out_file)
     return out_file
 
@@ -489,7 +491,9 @@ def generate_tbe_report(db: Session, tender: Tender) -> str:
     doc.add_paragraph(f"Technically Qualified Bidders: {', '.join(qualified) if qualified else 'None'}")
     doc.add_paragraph(f"Disqualified Bidders: {', '.join(not_qualified) if not_qualified else 'None'}")
 
-    out_file = os.path.join(DOCS_OUTPUT_DIR, f"TBE_TER_Report_{tender.nit_no}.docx")
+    safe_nit = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in (tender.nit_no or "TENDER"))
+    out_file = os.path.join(DOCS_OUTPUT_DIR, f"TBE_TER_Report_{safe_nit}.docx")
+    os.makedirs(os.path.dirname(out_file), exist_ok=True)
     doc.save(out_file)
     return out_file
 
