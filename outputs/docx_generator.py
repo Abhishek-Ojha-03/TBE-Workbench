@@ -328,19 +328,38 @@ def generate_tbe_mom(
         for entry in commercial_ranking:
             cr = comm_table.add_row().cells
             tie_flag = " ⚠️ TIE" if entry.get("tie") else ""
-            cr[0].text = f"{entry['label']}{tie_flag}"
+            cr[0].text = f"{entry['label']}{tie_flag}" if entry.get("label") else "—"
             cr[1].text = entry["name"]
-            cr[2].text = f"{entry['currency']} {entry['quoted_price']:,.2f}"
-            cr[3].text = f"{entry['pct_above_l1']:.2f}%" if entry["pct_above_l1"] > 0 else "Lowest"
-            cr[4].text = "RECOMMEND" if entry["rank"] == 1 else f"Alt — {entry['pct_above_l1']:.2f}% above L1"
+            
+            # Format price safely: handle None ("Price Not Mentioned")
+            q_price = entry.get("quoted_price")
+            if q_price is not None and isinstance(q_price, (int, float)):
+                cr[2].text = f"{entry.get('currency', 'INR')} {q_price:,.2f}"
+            else:
+                cr[2].text = "Price Not Mentioned"
 
-            if entry["rank"] == 1:
+            # Format pct_above_l1 safely
+            pct = entry.get("pct_above_l1")
+            if pct is not None and isinstance(pct, (int, float)):
+                cr[3].text = f"{pct:.2f}%" if pct > 0 else "Lowest"
+            else:
+                cr[3].text = "—"
+
+            # Format recommendation safely
+            rank_val = entry.get("rank")
+            if rank_val == 1:
+                cr[4].text = "RECOMMEND (L1)"
                 set_cell_background(cr[0], "E2EFDA")
                 set_cell_background(cr[4], "E2EFDA")
-            elif entry["rank"] == 2:
+            elif rank_val == 2:
+                cr[4].text = f"Alt (L2) — {pct:.2f}%" if pct is not None else "Alternative (L2)"
                 set_cell_background(cr[0], "FFF2CC")
-            else:
+            elif rank_val and rank_val > 2:
+                cr[4].text = f"Alt (L{rank_val}) — {pct:.2f}%" if pct is not None else f"Alternative (L{rank_val})"
                 set_cell_background(cr[0], "FCE4D6")
+            else:
+                cr[4].text = "Price Not Mentioned"
+                set_cell_background(cr[0], "FFF2CC")
 
         sig_section = 6
     else:
