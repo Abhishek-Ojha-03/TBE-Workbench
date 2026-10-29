@@ -3,17 +3,20 @@ Prompt templates for TBE Workbench.
 """
 
 SPEC_EXTRACTION_PROMPT = """
-You are a senior technical tender evaluation and procurement expert.
-Analyze the following specification text from Page {page_number}.
+You are a senior technical tender evaluation and procurement expert for BSES Equipment Engineering.
+Analyze the specification text from Page {page_number}.
 
-Extract all:
-1. Technical specifications, parameters, ratings, requirements, performance criteria, deliverables, or standards (whether for electrical equipment, IT hardware/software/laptops, vehicles/tyres, civil/mechanical supplies, or maintenance/consulting services).
+Extract ONLY genuine, actionable requirements:
+1. Technical specifications, parameters, ratings, requirements, performance criteria, deliverables, or standards.
 2. Qualification Requirements (QR): Identify these STRICTLY by explicit headings like "Qualification Criteria", "Technical Qualification", "QR", "Eligibility", "Financial Criteria", "Past Experience". Do NOT guess a requirement as QR unless it falls under such an explicit heading or clause.
-3. Mandatory Documents: e.g. "Technical Offer", "Deviation Sheet", "Audited balance sheets", "OEM Authorization", "Type test reports", "Guaranteed Technical Particulars".
+3. Mandatory Documents: e.g. "Technical Offer", "Deviation Sheet", "Audited balance sheets", "Type test reports", "Guaranteed Technical Particulars".
 4. Sentences & Clauses: Extract each numbered or lettered clause as one complete requirement item. Keep the clause and its full text intact. Do NOT split a single clause (such as clause 2.3 or 2.4) into multiple fragmented sub-rows, and do NOT duplicate requirements already mentioned.
-5. If technical parameters are presented in a table or list under a clause or lead-in sentence (e.g. "The equipment shall comply with the following technical parameters:"):
+5. If technical parameters are presented in a table or list under a clause:
    - Extract EACH individual parameter as its own distinct requirement row with its parameter name and required value (e.g. "Rated voltage: 11 kV", "Rated short circuit breaking current: 25 kA for 3 seconds").
-   - Do NOT extract the lead-in heading or introductory sentence itself (e.g. do NOT extract "The equipment shall comply with the following technical parameters:") as a separate standalone requirement. Use it only as context for the parameters underneath.
+6. CRITICAL - WHAT NOT TO EXTRACT (FILTER OUT):
+   - Do NOT extract section headings, chapter titles, table headers, or introductory lead-in phrases (e.g. "The following type tests shall have been carried out on the offered equipment:", "The equipment shall comply with the following technical parameters:").
+   - Do NOT extract document metadata, boilerplate instructions, or notes about deviation sheets (e.g. "Any deviation from the above parameters shall be listed in the Deviation Sheet", "A Deviation Sheet marked NIL shall be taken to mean full compliance").
+   - Do NOT extract repetitive sub-clause fragments (e.g. if an undertaking states "routine tests shall be carried out... and test certificates submitted", extract it as ONE single requirement, never two fragmented rows).
 
 Return a valid JSON object matching this schema:
 {{

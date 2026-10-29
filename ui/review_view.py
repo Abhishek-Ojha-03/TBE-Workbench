@@ -36,7 +36,22 @@ def render_review_screen(db: Session, tender: Tender):
     selected_name = st.selectbox("Select Bidder to Review:", bidder_names)
     selected_bidder = next(b for b in bidders if b.name == selected_name)
 
-    st.info(f"**Bidder:** {selected_bidder.name} | **Current Qualification Status:** `{selected_bidder.final_status}`")
+    # Status badge and Manual Sign-Off Controls
+    c_status, c_btn1, c_btn2 = st.columns([3, 1, 1])
+    with c_status:
+        st.info(f"**Bidder:** {selected_bidder.name} | **Current Qualification Status:** `{selected_bidder.final_status}`")
+    with c_btn1:
+        if st.button("✅ Mark as Qualified", key=f"qualify_{selected_bidder.id}", use_container_width=True):
+            selected_bidder.final_status = "Qualified"
+            db.commit()
+            st.success(f"{selected_bidder.name} marked as Qualified!")
+            st.rerun()
+    with c_btn2:
+        if st.button("⛔ Mark Not Qualified", key=f"disqualify_{selected_bidder.id}", use_container_width=True):
+            selected_bidder.final_status = "Not Qualified"
+            db.commit()
+            st.warning(f"{selected_bidder.name} marked as Not Qualified!")
+            st.rerun()
 
     latest_b = get_latest_baseline(db, tender.id)
     if not latest_b:

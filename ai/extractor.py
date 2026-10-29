@@ -45,7 +45,9 @@ def extract_requirements_from_page(page: Page, custom_text: str = None) -> List[
                 contents=prompt,
                 config={
                     "response_mime_type": "application/json",
-                    "response_schema": SpecificationExtractionResult
+                    "response_schema": SpecificationExtractionResult,
+                    "temperature": 0.0,
+                    "seed": 42
                 }
             )
             data = json.loads(response.text)
@@ -96,12 +98,29 @@ def process_specification_document(
 
         stitched_pages.append((p, text))
 
-    for p, text in stitched_pages:
-        # Skip pages with virtually no content
-        if len(text.strip()) < 30:
-            continue
-        reqs = extract_requirements_from_page(p, custom_text=text)
-        all_extracted.extend(reqs)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    valid_pages = [(p, text) for p, text in stitched_pages if len(text.strip()) >= 30]
+
+    def _process_page(item):
+        p, text = item
+        return (p.page_number, extract_requirements_from_page(p, custom_text=text))
+
+    max_workers = min(len(valid_pages), 3) if valid_pages else 1
+    page_results = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_process_page, item): item for item in valid_pages}
+        for future in as_completed(futures):
+            try:
+                pg_num, reqs = future.result()
+                page_results[pg_num] = reqs
+            except Exception as e:
+                print(f"Error extracting page in parallel: {e}")
+
+    # Preserve exact page order when appending requirements
+    for p, _ in valid_pages:
+        if p.page_number in page_results:
+            all_extracted.extend(page_results[p.page_number])
 
     # 1. Get or create BaselineVersion in database
     existing_b = db.query(BaselineVersion).filter(BaselineVersion.tender_id == tender_id).order_by(BaselineVersion.version_number.desc()).first()
@@ -125,10 +144,30 @@ def process_specification_document(
     import re
     seen_texts = set()
     unique_reqs = []
+
+    # Patterns for pure headings, lead-in phrases, and boilerplate to exclude
+    EXCLUDED_PATTERNS = [
+        r"^the following (?:type )?tests shall have been carried out",
+        r"^the equipment shall comply with the following (?:technical )?parameters",
+        r"^any deviation from the (?:above )?parameters shall be listed",
+        r"^a deviation sheet marked nil shall be taken to mean",
+        r"^(?:section|annexure|chapter|schedule)\s*[\d\.:\-]+$",
+        r"^(?:technical specifications|qualification requirements|scope of work):?$",
+    ]
+
     for r in all_extracted:
         text_clean = (r.text or '').strip()
         # Filter out trivial fragments or empty strings
         if len(text_clean) < 5:
+            continue
+
+        # Filter out lead-in sentences and pure section headings
+        lower_t = text_clean.lower()
+        if any(re.search(pat, lower_t) for pat in EXCLUDED_PATTERNS):
+            continue
+
+        # If text ends with a colon and is short (likely a header/lead-in line)
+        if text_clean.endswith(":") and len(text_clean.split()) <= 12 and not any(p in lower_t for p in ["voltage:", "current:", "frequency:", "degree:", "rating:"]):
             continue
             
         # Normalize text by collapsing extra whitespace and converting to lower
@@ -146,6 +185,7 @@ def process_specification_document(
             baseline_version_id=baseline.id,
             clause=r.clause,
             text=r.text,
+            page_number=r.page if hasattr(r, 'page') and r.page else 1,
             is_QR=r.is_qualification_requirement,
             not_applicable=False
         )

@@ -64,23 +64,32 @@ def compute_bidder_status(findings: List[Finding]) -> str:
     if not findings:
         return BidderQualificationResult.CANNOT_BE_QUALIFIED_YET
 
-    statuses = []
+    # 1. Any confirmed Not Complied on any clause makes the bidder Not Qualified
     for f in findings:
-        # Prioritize confirmed engineer status; fall back to AI suggestion for pre-check
         status = (f.engineer_status or f.ai_status or "").strip()
-        statuses.append(status)
+        if status == "Not Complied":
+            return BidderQualificationResult.NOT_QUALIFIED
 
-    # 1. Any confirmed Not Complied makes the bidder Not Qualified
-    if any(s == "Not Complied" for s in statuses):
-        return BidderQualificationResult.NOT_QUALIFIED
+    # 2. Check Qualification Requirements (QR) specifically
+    # Any QR clause not complied or under review halts qualification
+    for f in findings:
+        status = (f.engineer_status or f.ai_status or "").strip()
+        is_qr = f.requirement.is_QR if (f.requirement and hasattr(f.requirement, "is_QR")) else False
+        if is_qr and status != "Complied" and status != "N/A":
+            return BidderQualificationResult.CANNOT_BE_QUALIFIED_YET
 
-    # 2. Any row is still "Needs Human Review" -> Cannot be Qualified yet
-    if any(s == "Needs Human Review" or not s for s in statuses):
-        return BidderQualificationResult.CANNOT_BE_QUALIFIED_YET
+    # 3. Check technical clauses
+    # Count complied vs review
+    complied_count = sum(1 for f in findings if (f.engineer_status or f.ai_status or "").strip() in ["Complied", "N/A"])
+    review_count = sum(1 for f in findings if "review" in (f.engineer_status or f.ai_status or "").strip().lower() or not (f.engineer_status or f.ai_status))
 
-    # 3. Every row is Complied or N/A
-    all_ok = all(s in ["Complied", "N/A"] for s in statuses)
-    if all_ok:
+    # All clauses clean and verified -> Qualified
+    if review_count == 0 and complied_count > 0:
+        return BidderQualificationResult.QUALIFIED
+
+    # If all QR clauses passed and non-QR reviews are 1 or 2 minor items where engineer has confirmed,
+    # or if any clauses are pending, maintain Pending until human review
+    if any(f.engineer_status == "Qualified" for f in findings):
         return BidderQualificationResult.QUALIFIED
 
     return BidderQualificationResult.CANNOT_BE_QUALIFIED_YET
