@@ -131,16 +131,16 @@ Respond ONLY in valid JSON matching this schema:
 def _regex_fallback_extract(corpus: str) -> Tuple[Optional[float], str, str]:
     """Fallback heuristic regex to search for explicit quotation price lines."""
     patterns = [
-        r'(?:total\s*(?:bid|quoted|offer)?\s*(?:price|amount|value)|quoted\s*price|lump\s*sum\s*price)\s*[:=-]?\s*(?:rs\.?|inr|₹)?\s*([0-9,]+(?:\.[0-9]+)?)',
-        r'(?:rs\.?|inr|₹)\s*([0-9,]+(?:\.[0-9]+)?)\s*(?:only|per\s*set|total)',
+        r'(?:total\s*(?:lump\s*sum\s*)?(?:bid|quoted|offer)?\s*(?:price|amount|value)|quoted\s*price|lump\s*sum\s*(?:quoted\s*)?price|total\s*price|tender\s*total\s*price|quoted\s*bid\s*value)\s*(?:\([^\)]*\))?\s*[:=-]?\s*(?:rs\.?|inr|₹)?\s*([0-9,]+(?:\.[0-9]+)?)',
+        r'(?:rs\.?|inr|₹)\s*([0-9,]+(?:\.[0-9]+)?)\s*(?:only|per\s*set|total|inclusive)?',
     ]
     for pat in patterns:
         m = re.search(pat, corpus, re.IGNORECASE)
         if m:
-            raw_num = m.group(1).replace(",", "")
+            raw_num = m.group(1).replace(",", "").strip()
             try:
                 val = float(raw_num)
-                # Ignore very small numbers or likely clause numbers
+                # Ignore small numbers (e.g. clause numbers, years, percentages)
                 if val > 1000:
                     return (val, "INR", f"Extracted price: {m.group(0)}")
             except ValueError:
