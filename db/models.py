@@ -3,7 +3,7 @@ SQLAlchemy models matching the Developer Guide specification.
 """
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Boolean, Text, DateTime, ForeignKey, Index
+    Column, Integer, String, Boolean, Text, DateTime, Float, ForeignKey, Index
 )
 from sqlalchemy.orm import relationship
 from db.connection import Base
@@ -55,6 +55,7 @@ class Requirement(Base):
     baseline_version_id = Column(Integer, ForeignKey("baseline_versions.id"), nullable=False)
     clause = Column(String(50), nullable=True)
     text = Column(Text, nullable=False)
+    page_number = Column(Integer, nullable=True, default=1)
     is_QR = Column(Boolean, default=False, nullable=False)
     not_applicable = Column(Boolean, default=False, nullable=False)
 
@@ -74,6 +75,9 @@ class Bidder(Base):
     tender_id = Column(Integer, ForeignKey("tenders.id"), nullable=False)
     name = Column(String(200), nullable=False)
     final_status = Column(String(50), default="Pending", nullable=False)  # 'Pending' | 'Qualified' | 'Not Qualified'
+    quoted_price = Column(Float, nullable=True)          # Commercial price bid (INR or other currency)
+    price_currency = Column(String(10), default="INR", nullable=True)
+    commercial_rank = Column(Integer, nullable=True)     # L1=1, L2=2, L3=3 ... (set after price entry)
 
     # Relationships
     tender = relationship("Tender", back_populates="bidders")

@@ -14,6 +14,7 @@ from ui.working_excel_view import render_working_excel_screen
 from ui.review_view import render_review_screen
 from ui.reports_view import render_reports_screen
 from ui.accuracy_matrix_view import render_accuracy_matrix_screen
+from ui.commercial_view import render_commercial_screen
 
 # Page configuration
 st.set_page_config(
@@ -155,6 +156,7 @@ def main():
                     "TBE Working Excel",
                     "Verification Results",
                     "Reports & Completion",
+                    "💰 Commercial Evaluation",
                     "🎯 Accuracy Matrix"
                 ]
 
@@ -194,6 +196,8 @@ def main():
                 render_review_screen(db, tender)
             elif screen == "🎯 Accuracy Matrix":
                 render_accuracy_matrix_screen(db, tender)
+            elif screen == "💰 Commercial Evaluation":
+                render_commercial_screen(db, tender)
             elif screen == "Reports & Completion":
                 render_reports_screen(db, tender)
         finally:

@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from db.models import Tender, Bidder, BaselineVersion, Requirement, Finding, Evidence
 from db.baseline_service import get_latest_baseline, get_baseline_requirements, get_bidders_for_tender
+from db.commercial_service import get_commercial_ranking
 from ai.client import get_client, MODEL_NAME
 
 DOCS_OUTPUT_DIR = os.path.join("data", "generated_reports")
@@ -299,8 +300,54 @@ def generate_tbe_mom(
     negotiation_text = generate_ai_negotiation_points(tender, bidder_summaries)
     _write_markdown_to_doc(doc, negotiation_text)
 
-    # 5. Signatures block
-    doc.add_heading("5. Committee Signatures:", level=2)
+    # 5. Commercial Bid Ranking (Part 2) — only if prices have been entered
+    commercial_ranking = get_commercial_ranking(db, tender.id)
+    if commercial_ranking:
+        doc.add_heading("5. Commercial Bid Ranking — Part 2 (Price Bid Opening):", level=2)
+        doc.add_paragraph(
+            "The following price ranking has been derived from the commercial (price) envelopes "
+            "opened after completion of the Technical Evaluation. Only technically qualified "
+            "bidders are included. L1 = lowest quoted price."
+        )
+
+        comm_table = doc.add_table(rows=1, cols=5)
+        comm_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        comm_table.autofit = True
+
+        comm_hdrs = ["L-Rank", "Bidder Name", "Quoted Price", "% Above L1", "Recommendation"]
+        for ci, ch in enumerate(comm_hdrs):
+            cell = comm_table.rows[0].cells[ci]
+            cell.text = ch
+            set_cell_background(cell, "0E2A47")
+            for p in cell.paragraphs:
+                for r in p.runs:
+                    r.font.color.rgb = RGBColor(255, 255, 255)
+                    r.font.bold = True
+                    r.font.size = Pt(9)
+
+        for entry in commercial_ranking:
+            cr = comm_table.add_row().cells
+            tie_flag = " ⚠️ TIE" if entry.get("tie") else ""
+            cr[0].text = f"{entry['label']}{tie_flag}"
+            cr[1].text = entry["name"]
+            cr[2].text = f"{entry['currency']} {entry['quoted_price']:,.2f}"
+            cr[3].text = f"{entry['pct_above_l1']:.2f}%" if entry["pct_above_l1"] > 0 else "Lowest"
+            cr[4].text = "RECOMMEND" if entry["rank"] == 1 else f"Alt — {entry['pct_above_l1']:.2f}% above L1"
+
+            if entry["rank"] == 1:
+                set_cell_background(cr[0], "E2EFDA")
+                set_cell_background(cr[4], "E2EFDA")
+            elif entry["rank"] == 2:
+                set_cell_background(cr[0], "FFF2CC")
+            else:
+                set_cell_background(cr[0], "FCE4D6")
+
+        sig_section = 6
+    else:
+        sig_section = 5
+
+    # Signatures block
+    doc.add_heading(f"{sig_section}. Committee Signatures:", level=2)
     p_sig = doc.add_paragraph("\n\n\n______________________          ______________________          ______________________\n(Member - 1)                    (Member - 2)                    (Chairman / HOD)")
     p_sig.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
