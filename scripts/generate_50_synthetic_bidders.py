@@ -11,7 +11,10 @@ Creates:
 import os
 import io
 import csv
+import random
 import fitz
+from PIL import Image, ImageFilter, ImageEnhance
+import numpy as np
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -40,6 +43,52 @@ COMPANY_NAMES = [
     "Zodiac Power Controls Pvt Ltd", "Precision Switchgear & Infra Ltd"
 ]
 
+def degrade_scanned_image(pil_img):
+    """
+    Simulate realistic photocopier/scanner degradation:
+    1. Grayscale conversion with scanner paper tint
+    2. Random subtle rotation/tilt (-1.2 to +1.2 degrees)
+    3. Slight gaussian blur (scanner optical focus limitation)
+    4. Salt & pepper scanner noise and speckles
+    5. Contrast adjustment for authentic toner/photocopy texture
+    """
+    # Convert to grayscale
+    img = pil_img.convert("L")
+    
+    # Random slight rotation with white border expansion
+    angle = random.uniform(-1.0, 1.0)
+    img = img.rotate(angle, resample=Image.BICUBIC, expand=False, fillcolor=245)
+    
+    # Slight optical blur
+    img = img.filter(ImageFilter.GaussianBlur(radius=0.4))
+    
+    # Add scanner noise / dust speckles using numpy
+    arr = np.array(img, dtype=np.int16)
+    
+    # Scanner background non-uniformity (thermal/lamp gradient)
+    noise = np.random.normal(loc=0, scale=6, size=arr.shape)
+    arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
+    
+    # Random dark speckles / dust particles
+    speckle_mask = np.random.rand(*arr.shape) < 0.0008
+    arr[speckle_mask] = np.random.randint(40, 100, size=np.count_nonzero(speckle_mask))
+    
+    # Faint vertical scanner roller streak (common on office feeder scanners)
+    if random.random() < 0.35:
+        streak_col = random.randint(50, arr.shape[1] - 50)
+        streak_width = random.randint(1, 2)
+        arr[:, streak_col:streak_col + streak_width] = np.clip(
+            arr[:, streak_col:streak_col + streak_width].astype(np.int16) - random.randint(15, 30), 0, 255
+        ).astype(np.uint8)
+
+    degraded_img = Image.fromarray(arr)
+    
+    # Adjust contrast (photocopier effect)
+    enhancer = ImageEnhance.Contrast(degraded_img)
+    degraded_img = enhancer.enhance(1.25)
+    
+    return degraded_img
+
 def make_pdf_from_story(story, is_scan=False):
     pdf_buf = io.BytesIO()
     doc = SimpleDocTemplate(pdf_buf, pagesize=letter, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
@@ -52,8 +101,15 @@ def make_pdf_from_story(story, is_scan=False):
     fitz_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     scan_doc = fitz.open()
     for page in fitz_doc:
-        pix = page.get_pixmap(dpi=100, colorspace=fitz.csGRAY)
-        img_bytes = pix.tobytes("jpeg")
+        pix = page.get_pixmap(dpi=150)
+        pil_img = Image.open(io.BytesIO(pix.tobytes("png")))
+        
+        # Apply realistic degradation
+        degraded = degrade_scanned_image(pil_img)
+        
+        img_out = io.BytesIO()
+        degraded.save(img_out, format="JPEG", quality=65)
+        img_bytes = img_out.getvalue()
         
         img_pdf = fitz.open()
         rect = page.rect

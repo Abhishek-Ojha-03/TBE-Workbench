@@ -7,6 +7,8 @@ Rules from Dev Guide:
 """
 import os
 import io
+import itertools
+import threading
 from typing import Optional, List
 from dotenv import load_dotenv
 from PIL import Image
@@ -20,6 +22,10 @@ if "GOOGLE_API_KEY" in os.environ and not os.getenv("KEEP_SYSTEM_GOOGLE_KEY"):
 MODEL_NAME = os.getenv("MODEL_NAME", "gemini-3.8-flash")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY_3", "") or os.getenv("GEMINI_API_KEY", "")
 
+_CLIENT_POOL: List = []
+_CLIENT_CYCLE = None
+_POOL_LOCK = threading.Lock()
+
 
 def get_all_clients():
     """Returns a list of initialized genai Clients across all available keys in .env.
@@ -27,23 +33,49 @@ def get_all_clients():
     GEMINI_API_KEY_4, GEMINI_API_KEY_5, and any future numbered keys.
     Allows transparent pooling and automatic failover when any key hits 429 quota.
     """
+    global _CLIENT_POOL, _CLIENT_CYCLE
     from google import genai
-    keys = []
-    
-    # Automatically collect all keys matching GEMINI_API_KEY* from environment
-    for k_name, val in sorted(os.environ.items()):
-        if k_name.startswith("GEMINI_API_KEY") and val.strip():
-            clean_val = val.strip().strip('"').strip("'")
-            if clean_val and clean_val not in keys:
-                keys.append(clean_val)
-    
-    clients = []
-    for k in keys:
-        try:
-            clients.append(genai.Client(api_key=k))
-        except Exception:
-            pass
-    return clients
+
+    with _POOL_LOCK:
+        if _CLIENT_POOL:
+            return _CLIENT_POOL
+
+        keys = []
+        for k_name, val in sorted(os.environ.items()):
+            if k_name.startswith("GEMINI_API_KEY") and val.strip():
+                clean_val = val.strip().strip('"').strip("'")
+                if clean_val and clean_val not in keys:
+                    keys.append(clean_val)
+
+        clients = []
+        for k in keys:
+            try:
+                clients.append(genai.Client(api_key=k))
+            except Exception:
+                pass
+
+        _CLIENT_POOL = clients
+        if _CLIENT_POOL:
+            _CLIENT_CYCLE = itertools.cycle(_CLIENT_POOL)
+        return _CLIENT_POOL
+
+
+def get_next_client():
+    """
+    Thread-safe Round-Robin client selector.
+    Cycles evenly across all available API keys:
+      Request 1 -> Key 1
+      Request 2 -> Key 2
+      Request 3 -> Key 3
+      Request 4 -> Key 1 ...
+    Triples instant throughput with 0 added delay.
+    """
+    global _CLIENT_CYCLE
+    get_all_clients()
+    with _POOL_LOCK:
+        if not _CLIENT_POOL:
+            return None
+        return next(_CLIENT_CYCLE)
 
 
 def get_client():

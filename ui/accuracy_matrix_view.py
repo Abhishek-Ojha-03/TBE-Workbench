@@ -49,13 +49,13 @@ def render_accuracy_matrix_screen(db: Session, tender: Tender):
         st.markdown("## 🎯 Accuracy Benchmark & Audit Matrix")
         st.caption(f"Tender: `{tender.nit_no}` — Evaluating AI verdicts against Ground Truth benchmarks to verify zero-hallucination.")
     with top_c2:
-        docx_file = "TBE_Accuracy_Matrix_Documentation.docx"
+        docx_file = "TBE_Accuracy_Matrix_Formal_Report.docx" if os.path.exists("TBE_Accuracy_Matrix_Formal_Report.docx") else "TBE_Accuracy_Matrix_Documentation.docx"
         if os.path.exists(docx_file):
             with open(docx_file, "rb") as f:
                 st.download_button(
-                    label="📥 Download Audit Dossier (.docx)",
+                    label="📥 Download Formal Audit Report (.docx)",
                     data=f.read(),
-                    file_name=f"TBE_Accuracy_Dossier_NIT_{tender.nit_no}.docx",
+                    file_name=f"TBE_50_Bidders_Accuracy_Formal_Report_NIT_{tender.nit_no}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     use_container_width=True
                 )

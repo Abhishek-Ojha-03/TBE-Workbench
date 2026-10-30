@@ -33,3 +33,4 @@ cols_after = [r[1] for r in cur.execute('PRAGMA table_info(bidders)').fetchall()
 print('Cols after migration:', cols_after)
 con.close()
 print('Migration complete.')
+

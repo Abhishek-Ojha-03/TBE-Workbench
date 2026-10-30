@@ -76,13 +76,14 @@ def render_baseline_screens(db: Session, tender: Tender):
                     "id": r.id,
                     "is_QR": r.is_QR,
                     "clause": r.clause or "",
+                    "page_number": getattr(r, "page_number", 1) or 1,
                     "text": r.text,
                     "not_applicable": r.not_applicable
                 })
             
             df = pd.DataFrame(df_data)
 
-            st.caption("💡 **Tip:** Edit text in any cell, check/uncheck QR or Mark N/A, or click the **'+' button at the bottom of the table** to manually insert new requirements.")
+            st.caption("💡 **Tip:** Edit text or page number in any cell, check/uncheck QR or Mark N/A, or click the **'+' button at the bottom of the table** to manually insert new requirements.")
 
             # Editable grid using Streamlit data_editor
             edited_df = st.data_editor(
@@ -90,6 +91,7 @@ def render_baseline_screens(db: Session, tender: Tender):
                 column_config={
                     "is_QR": st.column_config.CheckboxColumn("Qualification Req (QR)", help="Must appear first in TBE grid"),
                     "clause": st.column_config.TextColumn("Clause / Section", width="small"),
+                    "page_number": st.column_config.NumberColumn("Spec Page No.", help="Page in tender specification document where this clause appears", width="small", min_value=1, format="%d"),
                     "text": st.column_config.TextColumn("Requirement Description", width="large"),
                     "not_applicable": st.column_config.CheckboxColumn("Mark N/A", help="Mark if requirement does not apply to this tender"),
                     "id": None  # Hide internal ID
@@ -119,11 +121,13 @@ def render_baseline_screens(db: Session, tender: Tender):
                 # Add Single Requirement Quick Form
                 with st.expander("➕ Quick Add Single Requirement / Specification Clause", expanded=False):
                     with st.form("quick_add_req_form", clear_on_submit=True):
-                        qa_col1, qa_col2 = st.columns([1, 3])
+                        qa_col1, qa_col2, qa_col3 = st.columns([1, 1, 3])
                         with qa_col1:
                             q_clause = st.text_input("Clause No.", placeholder="e.g. 6.1 or QR-4")
                             q_is_qr = st.checkbox("Qualification Req (QR)")
                         with qa_col2:
+                            q_page = st.number_input("Spec Page No.", min_value=1, value=1, step=1)
+                        with qa_col3:
                             q_text = st.text_area("Requirement Text / Specification Description", placeholder="Enter full requirement clause...")
                         
                         if st.form_submit_button("➕ Append to Baseline"):
@@ -134,6 +138,7 @@ def render_baseline_screens(db: Session, tender: Tender):
                                 current_records.append({
                                     "is_QR": q_is_qr,
                                     "clause": q_clause.strip(),
+                                    "page_number": int(q_page),
                                     "text": q_text.strip(),
                                     "not_applicable": False
                                 })

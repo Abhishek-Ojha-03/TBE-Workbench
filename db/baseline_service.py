@@ -61,6 +61,7 @@ def save_baseline_edits(
             baseline_version_id=new_baseline.id,
             clause=item.get("clause"),
             text=item.get("text", "").strip(),
+            page_number=int(item.get("page_number", 1)) if item.get("page_number") is not None else 1,
             is_QR=bool(item.get("is_QR", False)),
             not_applicable=bool(item.get("not_applicable", False))
         )

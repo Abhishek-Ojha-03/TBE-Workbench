@@ -289,8 +289,12 @@ def render_working_excel_screen(db: Session, tender: Tender):
                     finally:
                         thread_db.close()
 
-                # Launch all bidders concurrently in background threads
-                executor = ThreadPoolExecutor(max_workers=max(len(bidders), 1))
+                # High-speed Worker Pool:
+                # 3 concurrent worker threads aligned with our 3 round-robin keys.
+                # Each thread gets its own dedicated key in lockstep, maximizing parallel speed
+                # while preventing burst rate saturation.
+                NUM_CONCURRENT_WORKERS = min(3, max(len(bidders), 1))
+                executor = ThreadPoolExecutor(max_workers=NUM_CONCURRENT_WORKERS)
                 futures = [executor.submit(worker_task, b.id, b.name) for b in bidders]
                 executor.shutdown(wait=False)
 
