@@ -55,11 +55,12 @@ def extract_requirements_from_page(page: Page, custom_text: str = None) -> List[
             return result.requirements
         except Exception as e:
             err_str = str(e)
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                time.sleep(1.5)
+            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "503" in err_str or "UNAVAILABLE" in err_str:
+                time.sleep(2.0)
                 continue
             else:
                 print(f"Error parsing page {page.page_number}: {e}")
+                time.sleep(1.0)
                 continue
 
     return []

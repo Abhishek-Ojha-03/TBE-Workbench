@@ -1,10 +1,13 @@
 """
-FTS5 Searcher for Candidate Pages.
+Full-Text Searcher for Candidate Pages.
 Quickly finds pages in a bidder's bundle mentioning terms relevant to a requirement.
+Uses SQLite FTS5 (MATCH/bm25) when on SQLite, and Postgres tsvector (to_tsquery/ts_rank)
+when on Postgres — same page_fts table, different query syntax per backend.
 """
 from typing import List, Tuple
+from sqlalchemy import text
 from sqlalchemy.orm import Session
-from db.connection import engine
+from db.connection import engine, IS_SQLITE
 from db.models import Page, Document
 
 
@@ -44,23 +47,41 @@ def search_candidate_pages(
             .all()
         )
 
-    # Use OR search prioritizing specific technical keywords
-    fts_query = " OR ".join(f'"{kw}"' for kw in keywords[:8])
-
     page_ids: List[int] = []
     with engine.connect() as conn:
-        cursor = conn.exec_driver_sql(
-            """
-            SELECT p.page_id 
-            FROM page_fts p
-            JOIN documents d ON p.document_id = d.id
-            WHERE d.bidder_id = ? AND page_fts MATCH ?
-            ORDER BY bm25(page_fts)
-            LIMIT ?
-            """,
-            (bidder_id, fts_query, limit)
-        )
-        rows = cursor.fetchall()
+        if IS_SQLITE:
+            # Use OR search prioritizing specific technical keywords
+            fts_query = " OR ".join(f'"{kw}"' for kw in keywords[:8])
+            cursor = conn.exec_driver_sql(
+                """
+                SELECT p.page_id
+                FROM page_fts p
+                JOIN documents d ON p.document_id = d.id
+                WHERE d.bidder_id = ? AND page_fts MATCH ?
+                ORDER BY bm25(page_fts)
+                LIMIT ?
+                """,
+                (bidder_id, fts_query, limit)
+            )
+            rows = cursor.fetchall()
+        else:
+            # Postgres equivalent: OR-combine keywords into a tsquery, rank with ts_rank
+            tsquery = " | ".join(keywords[:8])
+            result = conn.execute(
+                text(
+                    """
+                    SELECT p.page_id
+                    FROM page_fts p
+                    JOIN documents d ON p.document_id = d.id
+                    WHERE d.bidder_id = :bidder_id
+                      AND p.content_tsv @@ to_tsquery('english', :tsquery)
+                    ORDER BY ts_rank(p.content_tsv, to_tsquery('english', :tsquery)) DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"bidder_id": bidder_id, "tsquery": tsquery, "limit": limit}
+            )
+            rows = result.fetchall()
         page_ids = [r[0] for r in rows]
 
     if not page_ids:

@@ -92,7 +92,11 @@ def ingest_pdf_document(
         .filter(Document.md5_hash == file_hash)
         .first()
     )
-    if cached_doc and cached_doc.pages and all("429" not in (p.text or "") for p in cached_doc.pages):
+    if (
+        cached_doc
+        and cached_doc.pages
+        and all("429" not in (p.text or "") and "503" not in (p.text or "") and "UNAVAILABLE" not in (p.text or "") for p in cached_doc.pages)
+    ):
         # Create a new Document record pointing to this bidder/tender, but clone page text from cache
         doc_record = Document(
             bidder_id=bidder_id,
@@ -201,16 +205,18 @@ def ingest_pdf_document(
 
     db.commit()
 
-    # 4. Bulk batch insert into SQLite FTS5 (1 single transaction instead of looping connections)
+    # 4. Bulk batch insert into page_fts (1 single transaction instead of looping connections).
+    # Uses named params via text() so this works unchanged on both SQLite and Postgres.
     fts_params = []
     for p in page_records:
         db.refresh(p)
-        fts_params.append((p.id, doc_record.id, p.page_number, p.text))
+        fts_params.append({"p_id": p.id, "d_id": doc_record.id, "p_num": p.page_number, "cnt": p.text})
 
     if fts_params:
+        from sqlalchemy import text
         with engine.connect() as conn:
-            conn.exec_driver_sql(
-                "INSERT INTO page_fts (page_id, document_id, page_number, content) VALUES (?, ?, ?, ?)",
+            conn.execute(
+                text("INSERT INTO page_fts (page_id, document_id, page_number, content) VALUES (:p_id, :d_id, :p_num, :cnt)"),
                 fts_params
             )
             conn.commit()

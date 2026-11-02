@@ -25,6 +25,25 @@ from rules.rule_engine import update_bidder_qualification_status
 from outputs.excel_generator import WorkingExcelGenerator
 
 
+def _normalize_bidder_name(name: str) -> str:
+    """
+    Normalizes a bidder/folder name for comparison purposes only (never used for
+    display or storage). Strips case, underscores, hyphens, periods, commas,
+    ampersands and extra whitespace so cosmetic naming differences (e.g.
+    'Siemens_Pvt_Ltd' vs 'Siemens Pvt Ltd' vs 'siemens pvt ltd.') are treated
+    as the same bidder. This is still an EXACT match on the cleaned-up string,
+    not a fuzzy/similarity match, so two genuinely different companies (e.g.
+    'Hira Power' vs 'Hira Power & Electronics') will still NOT match, since
+    'electronics' remains as an extra word after normalization.
+    """
+    import re as _re
+    if not name:
+        return ""
+    cleaned = _re.sub(r"[_\-.,&]", " ", name.lower())
+    cleaned = _re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
 def render_working_excel_screen(db: Session, tender: Tender):
     st.markdown(f"## 📊 TBE Working Excel & Bidder Dossiers: `{tender.nit_no}`")
 
@@ -61,9 +80,32 @@ def render_working_excel_screen(db: Session, tender: Tender):
 
     # ── Section ZIP: Bulk Upload ALL Bidders via ZIP ──────────────────────────
     with st.expander("📦 Bulk Ingest ALL Bidders via ZIP File (Upload Once for All)", expanded=False):
+
+        # If a ZIP was already uploaded in Bidder Setup (bidders were created
+        # directly from its folder names there), reuse it here with one click —
+        # no re-upload, and no name-matching needed since the bidder names and
+        # the folder names are guaranteed identical, by construction.
+        saved_zip_path = os.path.join("data", "bidder_zips", f"tender_{tender.id}_bidders.zip")
+        zip_bytes = None
+
+        if os.path.exists(saved_zip_path):
+            st.success(
+                f"✅ Using the bidder ZIP already uploaded in **Bidder Setup** "
+                f"(`{os.path.basename(saved_zip_path)}`) — bidder names match exactly, "
+                f"no re-upload needed."
+            )
+            if st.button(
+                "🚀 Extract & Ingest ALL Bidders from Saved ZIP",
+                type="primary",
+                key="btn_bulk_zip_ingest_saved"
+            ):
+                with open(saved_zip_path, "rb") as f:
+                    zip_bytes = f.read()
+
         st.caption(
-            "ZIP must contain one sub-folder per bidder, each folder holding that bidder's PDFs. "
-            "Example structure: `bidders.zip → Bidder_01_Apex/ → 01_Technical_Offer.pdf, ...`"
+            "Or upload a different ZIP here directly. It must contain one sub-folder per "
+            "bidder, each folder holding that bidder's PDFs. Example structure: "
+            "`bidders.zip → Bidder_01_Apex/ → 01_Technical_Offer.pdf, ...`"
         )
         zip_file = st.file_uploader(
             "Upload ZIP containing all bidder folders",
@@ -72,13 +114,14 @@ def render_working_excel_screen(db: Session, tender: Tender):
             help="Each sub-folder inside the ZIP becomes one bidder. Nested sub-folders are ignored."
         )
 
-        if zip_file and st.button("🚀 Extract & Ingest ALL Bidders from ZIP", type="primary", key="btn_bulk_zip_ingest"):
+        if zip_file and st.button("🚀 Extract & Ingest ALL Bidders from Uploaded ZIP", type="primary", key="btn_bulk_zip_ingest"):
+            zip_bytes = zip_file.read()
+
+        if zip_bytes:
             import time
             from db.connection import SessionLocal
             from db.models import Bidder as BidderModel
             from reading.ingest import ingest_documents_concurrently
-
-            zip_bytes = zip_file.read()
 
             zip_pbar  = st.progress(0.0, text="Extracting ZIP...")
             zip_log   = st.empty()
@@ -130,10 +173,17 @@ def render_working_excel_screen(db: Session, tender: Tender):
                 # Create or find Bidder record
                 thread_db = SessionLocal()
                 try:
-                    existing = thread_db.query(BidderModel).filter(
-                        BidderModel.tender_id == tender.id,
-                        BidderModel.name == folder_name
-                    ).first()
+                    # Primary match: exact name (case/symbol-insensitive, NOT fuzzy).
+                    # 'Hira Power' vs 'Hira Power & Electronics' still will NOT match,
+                    # since 'electronics' remains as an extra word after normalization.
+                    norm_folder = _normalize_bidder_name(folder_name)
+                    existing = None
+                    for b in thread_db.query(BidderModel).filter(
+                        BidderModel.tender_id == tender.id
+                    ).all():
+                        if _normalize_bidder_name(b.name) == norm_folder:
+                            existing = b
+                            break
 
                     # Fallback match: if bidder is named '1', '2', etc. in DB
                     if not existing and bidder_num_str:

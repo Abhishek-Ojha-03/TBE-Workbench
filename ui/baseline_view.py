@@ -5,6 +5,7 @@ Screens:
 2. Mandatory Documents
 3. Bidder Setup
 """
+import os
 import streamlit as st
 import pandas as pd
 from typing import Optional
@@ -181,6 +182,73 @@ def render_baseline_screens(db: Session, tender: Tender):
                             st.error(str(e))
                     else:
                         st.error("Please enter a valid bidder name.")
+
+        # Bulk add bidders from a ZIP (folder names become bidder names — same
+        # ZIP is reused later in TBE Working Excel to ingest documents, so the
+        # bidder names and the document folders always match exactly, by
+        # construction, with no separate name-reconciliation step needed.
+        with st.expander("📦 Add Bidders from ZIP (folder names become bidder names)", expanded=False):
+            st.caption(
+                "Upload a ZIP with one sub-folder per bidder (e.g. `siemens/`, `abb/`). "
+                "Each top-level folder becomes a bidder here, and the same ZIP is reused "
+                "in the TBE Working Excel screen to ingest documents — no re-upload, "
+                "no name-matching needed, since the bidder names come directly from "
+                "these same folder names."
+            )
+            setup_zip_file = st.file_uploader(
+                "Upload ZIP of bidder folders",
+                type=["zip"],
+                key="bidder_setup_zip_uploader"
+            )
+            if setup_zip_file and st.button(
+                "➕ Extract Bidder Names from ZIP & Save for Ingestion",
+                key="btn_bidder_setup_zip"
+            ):
+                import zipfile as _zipfile
+                import io as _io
+
+                zip_bytes = setup_zip_file.read()
+                try:
+                    zf = _zipfile.ZipFile(_io.BytesIO(zip_bytes))
+                except Exception as ze:
+                    st.error(f"Could not open ZIP: {ze}")
+                    st.stop()
+
+                folder_names = set()
+                for name in zf.namelist():
+                    parts = [p for p in name.replace("\\", "/").split("/") if p]
+                    if len(parts) >= 2 and parts[-1].lower().endswith(".pdf"):
+                        folder_names.add(parts[-2])
+                zf.close()
+
+                if not folder_names:
+                    st.error("No PDF files found inside sub-folders in the ZIP.")
+                else:
+                    added, skipped = [], []
+                    for folder_name in sorted(folder_names):
+                        try:
+                            add_bidder(db, tender.id, folder_name)
+                            added.append(folder_name)
+                        except ValueError:
+                            skipped.append(folder_name)
+
+                    # Save the ZIP to disk so Working Excel can reuse it directly
+                    zip_dir = os.path.join("data", "bidder_zips")
+                    os.makedirs(zip_dir, exist_ok=True)
+                    zip_save_path = os.path.join(zip_dir, f"tender_{tender.id}_bidders.zip")
+                    with open(zip_save_path, "wb") as f:
+                        f.write(zip_bytes)
+
+                    msg = f"✅ Added {len(added)} bidder(s): {', '.join(added) if added else '—'}."
+                    if skipped:
+                        msg += f" Skipped {len(skipped)} already registered: {', '.join(skipped)}."
+                    st.success(msg)
+                    st.info(
+                        "This ZIP is saved — go to **TBE Working Excel** and click "
+                        "**Extract & Ingest ALL Bidders from ZIP** to ingest documents "
+                        "for these bidders without uploading again."
+                    )
+                    st.rerun()
 
         # List existing bidders
         if not bidders:

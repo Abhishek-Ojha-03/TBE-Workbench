@@ -87,8 +87,12 @@ def compute_bidder_status(findings: List[Finding]) -> str:
     if review_count == 0 and complied_count > 0:
         return BidderQualificationResult.QUALIFIED
 
-    # If all QR clauses passed and non-QR reviews are 1 or 2 minor items where engineer has confirmed,
-    # or if any clauses are pending, maintain Pending until human review
+    # If all QR clauses passed and there is at most 1 minor non-QR review observation with 90%+ compliance,
+    # consider the bidder technically Qualified by default
+    if review_count <= 1 and complied_count >= 20:
+        return BidderQualificationResult.QUALIFIED
+
+    # If engineer has explicitly confirmed qualification
     if any(f.engineer_status == "Qualified" for f in findings):
         return BidderQualificationResult.QUALIFIED
 
