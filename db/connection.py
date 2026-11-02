@@ -9,10 +9,18 @@ from sqlalchemy.pool import NullPool, QueuePool
 
 load_dotenv()
 
-# If DATABASE_URL is set (e.g. a Supabase/Postgres URI), use it as-is.
-# Otherwise fall back to the original local SQLite file — local dev is unaffected.
+# If DATABASE_URL is set (e.g. a Supabase/Postgres URI), ensure it specifies the psycopg2 driver.
+# In SQLAlchemy 2.0+, bare "postgresql://" attempts to load "psycopg" (version 3), which causes
+# ModuleNotFoundError on environments with psycopg2-binary installed.
 DB_PATH = os.getenv("DB_PATH", "tbe_workbench.db")
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
+raw_db_url = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
+if raw_db_url.startswith("postgres://"):
+    DATABASE_URL = raw_db_url.replace("postgres://", "postgresql+psycopg2://", 1)
+elif raw_db_url.startswith("postgresql://") and not raw_db_url.startswith("postgresql+"):
+    DATABASE_URL = raw_db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+else:
+    DATABASE_URL = raw_db_url
+
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
 # For SQLite: NullPool eliminates table lock ceilings.
