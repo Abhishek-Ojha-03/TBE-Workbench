@@ -34,8 +34,9 @@ def generate_clarification_letter(
 
     checklist = "\n".join(items_text)
 
-    client = get_client()
-    if client is None:
+    from ai.client import get_all_clients
+    clients = get_all_clients()
+    if not clients:
         # Template fallback
         return f"""
 BSES EQUIPMENT ENGINEERING DIVISION
@@ -67,14 +68,37 @@ Deficient Requirements / Clarification items:
 
 The letter must specify a 3 working days response time and request authentic supporting documents/test reports.
 """
-    try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt
-        )
-        return response.text.strip()
-    except Exception as e:
-        return f"Error drafting letter: {e}"
+    last_err = None
+    for client in clients:
+        try:
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt
+            )
+            return response.text.strip()
+        except Exception as e:
+            last_err = e
+            continue
+
+    # Clean fallback if all keys exhausted or hit quota
+    return f"""BSES EQUIPMENT ENGINEERING DIVISION
+TECHNICAL CLARIFICATION REQUEST
+
+To: {bidder.name}
+Tender: {tender.description} (NIT No: {tender.nit_no})
+Date: {datetime.now().strftime('%d-%b-%Y')}
+
+Dear Sir/Madam,
+
+During the Technical Bid Evaluation of your offer for the subject tender, the following queries / deficiencies have been observed:
+
+{checklist}
+
+You are requested to submit your point-wise clarification along with supporting accredited laboratory test reports / documents within 3 working days.
+
+Yours faithfully,
+BSES Equipment Engineering
+(Drafted via official BSES utility template)"""
 
 
 def handle_clarification_response(
