@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from db.models import Tender, Document, Page
 from reading.ingest import ingest_pdf_document, get_document_pages
 from ai.extractor import process_specification_document
+from ai.quota_guard import QuotaExhaustedError
 from db.baseline_service import get_latest_baseline
 
 
@@ -41,28 +42,34 @@ def render_specification_screen(db: Session, tender: Tender):
 
         if uploaded_file is not None:
             if st.button("🚀 Process Specification with AI", type="primary"):
-                with st.spinner("Reading pages, checking scans with Vision OCR, and extracting clauses via Gemini..."):
-                    pdf_bytes = uploaded_file.read()
-                    
-                    # 1. Ingest PDF page-by-page (pass tender_id to link doc to this tender)
-                    doc_record = ingest_pdf_document(
-                        db=db,
-                        file_bytes=pdf_bytes,
-                        file_name=uploaded_file.name,
-                        document_type="Specification",
-                        bidder_id=None,
-                        tender_id=tender.id
-                    )
+                pdf_bytes = uploaded_file.read()
 
-                    # 2. Extract requirements & create Baseline Version 1
-                    baseline = process_specification_document(
-                        db=db,
-                        tender_id=tender.id,
-                        specification_document_id=doc_record.id
-                    )
+                # 1. Ingest PDF page-by-page (pass tender_id to link doc to this tender)
+                doc_record = ingest_pdf_document(
+                    db=db,
+                    file_bytes=pdf_bytes,
+                    file_name=uploaded_file.name,
+                    document_type="Specification",
+                    bidder_id=None,
+                    tender_id=tender.id
+                )
 
+                # 2. Extract requirements & create Baseline Version 1
+                try:
+                    with st.spinner("Reading pages, checking scans with Vision OCR, and extracting clauses via Gemini..."):
+                        baseline = process_specification_document(
+                            db=db,
+                            tender_id=tender.id,
+                            specification_document_id=doc_record.id
+                        )
                     st.success(f"Specification processed! Baseline Version {baseline.version_number} created with {len(baseline.requirements)} requirements.")
                     st.rerun()
+                except QuotaExhaustedError as e:
+                    st.error(f"🚫 {e.message}")
+                    st.info(
+                        "The document has already been uploaded and saved — once quota resets, "
+                        "you can re-run extraction on it without uploading again."
+                    )
 
     with col2:
         st.subheader("Ingestion Status")

@@ -21,6 +21,7 @@ from db.models import Tender, Bidder, Document, Finding, Requirement
 from db.baseline_service import get_latest_baseline, get_baseline_requirements, get_bidders_for_tender
 from reading.ingest import ingest_pdf_document, ingest_bidder_bundle_parallel, ingest_documents_concurrently
 from ai.verifier import verify_all_requirements_for_bidder, verify_all_bidders
+from ai.quota_guard import QuotaExhaustedError
 from rules.rule_engine import update_bidder_qualification_status
 from outputs.excel_generator import WorkingExcelGenerator
 
@@ -303,6 +304,21 @@ def render_working_excel_screen(db: Session, tender: Tender):
 
     with col_verify_all:
         if st.button("🚀 Run AI Verification for ALL Bidders", type="primary", use_container_width=True, key="btn_run_all_bidders"):
+            # Pre-flight quota check, upfront, before launching the worker pool —
+            # one clean message instead of every bidder thread independently
+            # failing with the same "quota exhausted" error a few seconds in.
+            import math
+            from ai.quota_guard import check_sufficient_quota
+            _active_reqs = get_baseline_requirements(db, get_latest_baseline(db, tender.id).id) if get_latest_baseline(db, tender.id) else []
+            _active_count = len([r for r in _active_reqs if not r.not_applicable])
+            _calls_per_bidder = max(1, math.ceil(_active_count / 12)) if _active_count else 0
+            _estimated_total = _calls_per_bidder * len(bidders)
+            if _estimated_total:
+                _ok, _msg, _resets_at = check_sufficient_quota(estimated_calls_needed=_estimated_total)
+                if not _ok:
+                    st.error(f"🚫 {_msg}")
+                    st.stop()
+
             status_box = st.status("🚀 Running AI Verification for all bidders in parallel...", expanded=True)
             with status_box:
                 import queue
@@ -430,11 +446,14 @@ def render_working_excel_screen(db: Session, tender: Tender):
                 st.write("")
                 st.write("")
                 if st.button(f"🤖 Run AI Verification for {bidder.name}", type="primary", key=f"run_verify_{bidder.id}", use_container_width=True):
-                    with st.spinner(f"AI evaluating {bidder.name} against baseline requirements with quote verification..."):
-                        findings = verify_all_requirements_for_bidder(db, tender.id, bidder.id)
-                        status = update_bidder_qualification_status(db, bidder.id)
+                    try:
+                        with st.spinner(f"AI evaluating {bidder.name} against baseline requirements with quote verification..."):
+                            findings = verify_all_requirements_for_bidder(db, tender.id, bidder.id)
+                            status = update_bidder_qualification_status(db, bidder.id)
                         st.success(f"Verification complete! Bidder Status: {status}")
                         st.rerun()
+                    except QuotaExhaustedError as e:
+                        st.error(f"🚫 {e.message}")
 
             # Display uploaded files
             docs = db.query(Document).filter(Document.bidder_id == bidder.id).all()

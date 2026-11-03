@@ -204,8 +204,9 @@ def verify_requirement_for_bidder(
         else:
             ordered_clients = list(clients_pool)
 
+        from ai import quota_guard
         for active_client in ordered_clients:
-            if getattr(active_client, "_daily_exhausted", False):
+            if getattr(active_client, "_daily_exhausted", False) or quota_guard.is_exhausted(active_client):
                 continue
             try:
                 response = active_client.models.generate_content(
@@ -218,18 +219,21 @@ def verify_requirement_for_bidder(
                     }
                 )
                 if response is not None:
+                    quota_guard.record_success(active_client)
                     break
             except Exception as api_err:
                 last_err = api_err
                 err_msg = str(api_err)
                 if "per day limit exceeded" in err_msg or "daily" in err_msg.lower():
                     setattr(active_client, "_daily_exhausted", True)
+                    quota_guard.mark_exhausted(active_client)
                     continue
                 elif "401" in err_msg or "UNAUTHENTICATED" in err_msg or "ACCOUNT_STATE_INVALID" in err_msg:
                     # Dead or revoked API key: disable it permanently so it never chokes other calls
                     setattr(active_client, "_daily_exhausted", True)
                     continue
                 elif "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                    quota_guard.mark_exhausted(active_client)
                     continue
                 elif "500" in err_msg or "503" in err_msg or "UNAVAILABLE" in err_msg or "INTERNAL" in err_msg:
                     continue
@@ -452,8 +456,9 @@ def verify_requirements_batch_for_bidder(
         else:
             ordered_clients = list(clients_pool)
 
+        from ai import quota_guard
         for active_client in ordered_clients:
-            if getattr(active_client, "_daily_exhausted", False):
+            if getattr(active_client, "_daily_exhausted", False) or quota_guard.is_exhausted(active_client):
                 continue
 
             try:
@@ -467,12 +472,14 @@ def verify_requirements_batch_for_bidder(
                     }
                 )
                 if response is not None:
+                    quota_guard.record_success(active_client)
                     break
             except Exception as api_err:
                 last_err = api_err
                 err_msg = str(api_err)
                 if "per day limit exceeded" in err_msg or "daily" in err_msg.lower():
                     setattr(active_client, "_daily_exhausted", True)
+                    quota_guard.mark_exhausted(active_client)
                     continue
                 elif "401" in err_msg or "UNAUTHENTICATED" in err_msg or "ACCOUNT_STATE_INVALID" in err_msg:
                     # Dead or revoked API key: permanently disable it for this session so it never chokes other calls
@@ -480,6 +487,7 @@ def verify_requirements_batch_for_bidder(
                     continue
                 elif "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
                     # Key hit momentary 15 RPM window; failover immediately to next key
+                    quota_guard.mark_exhausted(active_client)
                     continue
                 elif "500" in err_msg or "503" in err_msg or "UNAVAILABLE" in err_msg or "INTERNAL" in err_msg:
                     # Transient Google server spike; failover immediately to next key
@@ -642,7 +650,19 @@ def verify_all_requirements_for_bidder(
     reqs = get_baseline_requirements(db, baseline.id)
     active_reqs = [r for r in reqs if not r.not_applicable]
     findings = []
-    
+
+    # ── Pre-flight quota check ────────────────────────────────────────────
+    # BATCH_SIZE requirements go out per call (see below) — estimate calls
+    # needed up front so a job that clearly can't finish today is blocked
+    # before it starts, not partway through.
+    import math
+    from ai.quota_guard import check_sufficient_quota, QuotaExhaustedError
+    estimated_calls = max(1, math.ceil(len(active_reqs) / 12)) if active_reqs else 0
+    if estimated_calls:
+        ok, message, resets_at = check_sufficient_quota(estimated_calls_needed=estimated_calls)
+        if not ok:
+            raise QuotaExhaustedError(message, resets_at)
+
     # Aggressive Batch Packing:
     # Instead of sending 6 requirements per API call, we pack 12-14 requirements into 1 call.
     # For a 24-clause tender, this cuts total API round-trips from 4 calls down to just 2 calls,
@@ -690,6 +710,25 @@ def verify_all_bidders(
 
     if not bidders:
         return results
+
+    # ── Pre-flight quota check (aggregate across ALL bidders) ─────────────
+    # Checking per-bidder alone isn't enough here: bidders run concurrently
+    # (ThreadPoolExecutor below), so several could each individually pass a
+    # per-bidder check before any of them has recorded a call — this
+    # top-level check catches that case by estimating the total up front.
+    import math
+    from db.baseline_service import get_latest_baseline as _get_latest_baseline
+    from db.baseline_service import get_baseline_requirements as _get_baseline_requirements
+    from ai.quota_guard import check_sufficient_quota, QuotaExhaustedError
+    _baseline = _get_latest_baseline(db, tender_id)
+    if _baseline:
+        _active_count = len([r for r in _get_baseline_requirements(db, _baseline.id) if not r.not_applicable])
+        _calls_per_bidder = max(1, math.ceil(_active_count / 12)) if _active_count else 0
+        _estimated_total_calls = _calls_per_bidder * total_bidders
+        if _estimated_total_calls:
+            ok, message, resets_at = check_sufficient_quota(estimated_calls_needed=_estimated_total_calls)
+            if not ok:
+                raise QuotaExhaustedError(message, resets_at)
 
     completed_count = 0
 

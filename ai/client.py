@@ -40,17 +40,22 @@ def get_all_clients():
         if _CLIENT_POOL:
             return _CLIENT_POOL
 
-        keys = []
+        keys = []  # list of (env_var_name, key_value), in sorted-name order
         for k_name, val in sorted(os.environ.items()):
             if k_name.startswith("GEMINI_API_KEY") and val.strip():
                 clean_val = val.strip().strip('"').strip("'")
-                if clean_val and clean_val not in keys:
-                    keys.append(clean_val)
+                if clean_val and clean_val not in [v for _, v in keys]:
+                    keys.append((k_name, clean_val))
 
         clients = []
-        for k in keys:
+        for k_name, k in keys:
             try:
-                clients.append(genai.Client(api_key=k))
+                c = genai.Client(api_key=k)
+                # Tagged with the env var name (never the raw key) so
+                # ai/quota_guard.py can persist per-key exhaustion state
+                # without ever storing a secret in the database.
+                c._key_label = k_name
+                clients.append(c)
             except Exception:
                 pass
 
@@ -125,19 +130,23 @@ def extract_text_from_images_batch(image_bytes_list: List[bytes], prompt: Option
 
     last_error = ""
     for active_client in clients:
+        from ai import quota_guard
+        if quota_guard.is_exhausted(active_client):
+            continue  # skip a key we already know is exhausted today — don't even try
         try:
             response = active_client.models.generate_content(
                 model=MODEL_NAME,
                 contents=pil_images + [batch_prompt]
             )
+            quota_guard.record_success(active_client)
             raw_text = response.text.strip() if response.text else ""
-            
+
             # Split results by page delimiter
             results = []
             for i in range(1, num_pages + 1):
                 marker = f"=== PAGE {i} ==="
                 next_marker = f"=== PAGE {i+1} ===" if i < num_pages else None
-                
+
                 if marker in raw_text:
                     part = raw_text.split(marker)[1]
                     if next_marker and next_marker in part:
@@ -145,12 +154,13 @@ def extract_text_from_images_batch(image_bytes_list: List[bytes], prompt: Option
                     results.append(part.strip())
                 else:
                     results.append("")
-                    
+
             if len(results) == num_pages and any(len(r) > 10 for r in results):
                 return results
         except Exception as exc:
             last_error = str(exc)
             if "429" in last_error or "RESOURCE_EXHAUSTED" in last_error:
+                quota_guard.mark_exhausted(active_client)
                 continue
 
     # Graceful fallback: individual extraction if batch delimiter parsing failed
@@ -184,16 +194,21 @@ def extract_text_from_image(image_bytes: bytes, prompt: Optional[str] = None) ->
         return f"[Image Error: {img_err}]"
 
     for active_client in clients:
+        from ai import quota_guard
+        if quota_guard.is_exhausted(active_client):
+            continue  # skip a key we already know is exhausted today — don't even try
         try:
             response = active_client.models.generate_content(
                 model=MODEL_NAME,
                 contents=[image, prompt]
             )
+            quota_guard.record_success(active_client)
             return response.text.strip() if response.text else ""
         except Exception as exc:
             last_error = str(exc)
             if "429" in last_error or "RESOURCE_EXHAUSTED" in last_error:
                 # Immediate failover to the next key without crashing or stalling
+                quota_guard.mark_exhausted(active_client)
                 continue
             else:
                 return f"[OCR Error: {last_error}]"

@@ -9,6 +9,30 @@ from sqlalchemy.orm import relationship
 from db.connection import Base
 
 
+class ApiKeyQuotaState(Base):
+    """
+    Tracks per-API-key quota exhaustion and self-tracked daily call counts,
+    so a 429 observed in one app run (or process — Streamlit and the API
+    server both read/write this same table) is remembered across restarts
+    instead of being forgotten the moment the process exits.
+
+    key_label: which GEMINI_API_KEY* env var this row tracks (e.g.
+    "GEMINI_API_KEY", "GEMINI_API_KEY_2") — never the raw key value itself.
+    exhausted_until: set when a real 429/daily-limit error is observed;
+    calls are skipped for this key until this time passes.
+    calls_today / count_date: self-tracked call volume, used only for the
+    proactive pre-flight estimate (see ai/quota_guard.py) — reset whenever
+    count_date no longer matches "today" in the quota's reset timezone.
+    """
+    __tablename__ = "api_key_quota_state"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key_label = Column(String(50), unique=True, nullable=False, index=True)
+    exhausted_until = Column(DateTime, nullable=True)
+    calls_today = Column(Integer, default=0, nullable=False)
+    count_date = Column(String(10), nullable=True)  # ISO date string, e.g. "2026-11-03"
+
+
 class Tender(Base):
     """
     Tender: One purchase process with a description and a NIT number.

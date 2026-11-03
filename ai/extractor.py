@@ -78,7 +78,10 @@ def extract_requirements_from_page(page: Page, custom_text: str = None) -> List[
     prompt = SPEC_EXTRACTION_PROMPT.format(page_number=page.page_number, page_text=raw_text)
 
     import time
+    from ai import quota_guard
     for client in clients:
+        if quota_guard.is_exhausted(client):
+            continue  # skip a key we already know is exhausted today — don't even try
         try:
             response = client.models.generate_content(
                 model=MODEL_NAME,
@@ -90,12 +93,16 @@ def extract_requirements_from_page(page: Page, custom_text: str = None) -> List[
                     "seed": 42
                 }
             )
+            quota_guard.record_success(client)
             data = json.loads(response.text)
             result = SpecificationExtractionResult.model_validate(data)
             return result.requirements
         except Exception as e:
             err_str = str(e)
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "503" in err_str or "UNAVAILABLE" in err_str:
+            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                quota_guard.mark_exhausted(client)
+                continue
+            elif "503" in err_str or "UNAVAILABLE" in err_str:
                 time.sleep(2.0)
                 continue
             else:
@@ -137,6 +144,16 @@ def process_specification_document(
             Used by Streamlit UI to show a progress spinner for large PDFs.
     """
     pages = get_document_pages(db, specification_document_id)
+
+    # ── 0. Pre-flight quota check ─────────────────────────────────────────────
+    # One Gemini call per page (worst case) — use the raw page count as a
+    # deliberately conservative (slight over-)estimate, so we'd rather block
+    # early than start a job that fails 30 pages in.
+    from ai.quota_guard import check_sufficient_quota, QuotaExhaustedError
+    ok, message, resets_at = check_sufficient_quota(estimated_calls_needed=len(pages))
+    if not ok:
+        raise QuotaExhaustedError(message, resets_at)
+
     all_extracted: List[ExtractedRequirement] = []
 
     # ── 1. Stitch sentences across page boundaries ───────────────────────────
@@ -194,6 +211,8 @@ def process_specification_document(
             return (p.page_number, extract_requirements_from_page(p, custom_text=text))
 
         max_workers = min(len(ordered_pages), 3) if ordered_pages else 1
+        total = len(ordered_pages)
+        completed_count = 0
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(_process_page, item): item for item in ordered_pages}
             for future in as_completed(futures):
@@ -202,6 +221,9 @@ def process_specification_document(
                     page_results[pg_num] = reqs
                 except Exception as e:
                     print(f"[extractor] Error extracting page in parallel: {e}")
+                completed_count += 1
+                if progress_callback:
+                    progress_callback(completed_count, total, sum(len(v) for v in page_results.values()))
 
     # ── 4b. LARGE DOC (>10 pages): sequential with rate-limit pacing ──────────
     else:
