@@ -11,6 +11,7 @@ Activities 6, 7, 8, 10, 12, 13, 14 in Workflow Document:
 """
 import os
 import io
+import time
 import zipfile
 import tempfile
 import streamlit as st
@@ -119,7 +120,6 @@ def render_working_excel_screen(db: Session, tender: Tender):
             zip_bytes = zip_file.read()
 
         if zip_bytes:
-            import time
             from db.connection import SessionLocal
             from db.models import Bidder as BidderModel
             from reading.ingest import ingest_documents_concurrently
@@ -265,7 +265,6 @@ def render_working_excel_screen(db: Session, tender: Tender):
                 total_files = sum(len(f_list) for _, (_, f_list) in staged_bundles.items())
                 ingest_status = st.status(f"⚡ Ingesting {total_files} documents across {len(staged_bundles)} bidders in parallel...", expanded=True)
                 with ingest_status:
-                    import time
                     from concurrent.futures import ThreadPoolExecutor, as_completed
                     from reading.ingest import ingest_documents_concurrently
 
@@ -323,7 +322,6 @@ def render_working_excel_screen(db: Session, tender: Tender):
             with status_box:
                 import queue
                 import threading
-                import time
                 from concurrent.futures import ThreadPoolExecutor
                 from db.connection import SessionLocal
                 from rules.rule_engine import update_bidder_qualification_status
@@ -433,7 +431,6 @@ def render_working_excel_screen(db: Session, tender: Tender):
                 if uploaded_files:
                     if st.button(f"⚡ Fast Parallel Ingest ({len(uploaded_files)} Documents)", type="primary", key=f"btn_ingest_{bidder.id}"):
                         with st.spinner(f"Ingesting {len(uploaded_files)} PDFs concurrently using background workers..."):
-                            import time
                             i_start = time.time()
                             files_data = [(uf.name, uf.read()) for uf in uploaded_files]
                             count = ingest_documents_concurrently(bidder.id, files_data, max_workers=6)

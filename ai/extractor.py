@@ -100,7 +100,10 @@ def extract_requirements_from_page(page: Page, custom_text: str = None) -> List[
         except Exception as e:
             err_str = str(e)
             if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                quota_guard.mark_exhausted(client)
+                # Only a genuine per-day quota error locks the key out until
+                # tomorrow — a brief RPM burst just moves on to the next key.
+                if quota_guard.is_daily_quota_error(err_str):
+                    quota_guard.mark_exhausted(client)
                 continue
             elif "503" in err_str or "UNAVAILABLE" in err_str:
                 time.sleep(2.0)

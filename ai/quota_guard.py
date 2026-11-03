@@ -26,6 +26,8 @@ from datetime import datetime, timedelta, date
 from typing import Optional, Tuple
 from zoneinfo import ZoneInfo
 
+from sqlalchemy.exc import IntegrityError
+
 from db.connection import SessionLocal
 from db.models import ApiKeyQuotaState
 
@@ -39,6 +41,24 @@ QUOTA_RESET_TZ = ZoneInfo("America/Los_Angeles")
 # The earlier 429 error message observed a limit of 20 requests/day for the
 # model this project's MODEL_NAME currently resolves to.
 DAILY_LIMIT_PER_KEY = int(os.getenv("GEMINI_DAILY_LIMIT_PER_KEY", "20"))
+
+
+def is_daily_quota_error(err_str: str) -> bool:
+    """
+    Distinguishes a genuine per-day quota exhaustion from a brief per-minute
+    (RPM) throttle — both come back from Google as a 429/RESOURCE_EXHAUSTED,
+    but only the daily one should lock a key out until tomorrow's reset.
+
+    Found via live testing (2026-11-03): ai/client.py and ai/extractor.py
+    were calling mark_exhausted() for ANY 429, including momentary RPM
+    bursts (e.g. 3 parallel extraction threads retrying at nearly the same
+    instant) — this incorrectly locked keys out for a full day when they'd
+    actually recover within seconds. ai/verifier.py already made this
+    distinction correctly; this is the shared helper so every call site
+    uses the same check instead of each guessing at the error string.
+    """
+    lower = err_str.lower()
+    return "per day limit exceeded" in lower or "daily" in lower
 
 
 class QuotaExhaustedError(Exception):
@@ -69,13 +89,37 @@ def _next_reset_at() -> datetime:
 
 
 def _get_or_create_row(db, key_label: str) -> ApiKeyQuotaState:
+    """
+    Get-or-create, safe under concurrent callers.
+
+    Extraction runs pages in parallel (ThreadPoolExecutor), and each thread
+    calls this via its own SessionLocal(). Two threads can both query and
+    see "no row yet" before either commits, then both try to INSERT the
+    same key_label — a genuine race first hit in production (2026-11-03):
+    the second INSERT raised sqlite3.IntegrityError (UNIQUE constraint),
+    which propagated up uncaught and silently killed that page's
+    extraction attempt. Fixed by catching the violation and re-fetching
+    the row the other thread already created, instead of assuming this
+    caller is always the one creating it.
+    """
     row = db.query(ApiKeyQuotaState).filter(ApiKeyQuotaState.key_label == key_label).first()
-    if not row:
-        row = ApiKeyQuotaState(key_label=key_label, calls_today=0, count_date=str(_today_quota_date()))
-        db.add(row)
+    if row:
+        return row
+
+    row = ApiKeyQuotaState(key_label=key_label, calls_today=0, count_date=str(_today_quota_date()))
+    db.add(row)
+    try:
         db.commit()
         db.refresh(row)
-    return row
+        return row
+    except IntegrityError:
+        # Another concurrent thread/request created this row first — that's
+        # fine, just use theirs instead of treating it as a real failure.
+        db.rollback()
+        existing = db.query(ApiKeyQuotaState).filter(ApiKeyQuotaState.key_label == key_label).first()
+        if existing:
+            return existing
+        raise  # genuinely unexpected if it's still missing after a rollback
 
 
 def is_exhausted(client) -> bool:
@@ -119,7 +163,19 @@ def mark_exhausted(client) -> None:
 
 def record_success(client) -> None:
     """Increments today's self-tracked call count for this key — used only
-    by the pre-flight estimate below, not by is_exhausted/mark_exhausted."""
+    by the pre-flight estimate below, not by is_exhausted/mark_exhausted.
+
+    Uses an atomic SQL-level UPDATE (calls_today = calls_today + 1) rather
+    than read-modify-write in Python — a stress test of the parallel
+    extraction path (10 threads x 30 calls) showed the naive
+    `row.calls_today += 1` loses updates under concurrency (several threads
+    read the same starting value before any of them commits), undercounting
+    real usage. The atomic form pushes the increment into the database
+    engine, which serializes it correctly regardless of how many threads
+    call this at once.
+    """
+    from sqlalchemy import update
+
     key_label = getattr(client, "_key_label", None)
     if not key_label:
         return
@@ -128,10 +184,24 @@ def record_success(client) -> None:
     try:
         row = _get_or_create_row(db, key_label)
         today_str = str(_today_quota_date())
+
         if row.count_date != today_str:
-            row.count_date = today_str
-            row.calls_today = 0
-        row.calls_today += 1
+            # Date rolled over — reset for the new day before counting
+            # today's call. This single-row update is safe even if two
+            # threads both observe the stale date, since whichever runs
+            # second here just re-applies the same reset values.
+            db.execute(
+                update(ApiKeyQuotaState)
+                .where(ApiKeyQuotaState.key_label == key_label)
+                .values(count_date=today_str, calls_today=0)
+            )
+            db.commit()
+
+        db.execute(
+            update(ApiKeyQuotaState)
+            .where(ApiKeyQuotaState.key_label == key_label)
+            .values(calls_today=ApiKeyQuotaState.calls_today + 1)
+        )
         db.commit()
     finally:
         db.close()

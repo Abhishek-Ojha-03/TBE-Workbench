@@ -160,7 +160,10 @@ def extract_text_from_images_batch(image_bytes_list: List[bytes], prompt: Option
         except Exception as exc:
             last_error = str(exc)
             if "429" in last_error or "RESOURCE_EXHAUSTED" in last_error:
-                quota_guard.mark_exhausted(active_client)
+                # Only a genuine per-day quota error locks the key out until
+                # tomorrow — a brief RPM burst just moves on to the next key.
+                if quota_guard.is_daily_quota_error(last_error):
+                    quota_guard.mark_exhausted(active_client)
                 continue
 
     # Graceful fallback: individual extraction if batch delimiter parsing failed
@@ -207,8 +210,10 @@ def extract_text_from_image(image_bytes: bytes, prompt: Optional[str] = None) ->
         except Exception as exc:
             last_error = str(exc)
             if "429" in last_error or "RESOURCE_EXHAUSTED" in last_error:
-                # Immediate failover to the next key without crashing or stalling
-                quota_guard.mark_exhausted(active_client)
+                # Only a genuine per-day quota error locks the key out until
+                # tomorrow — a brief RPM burst just moves on to the next key.
+                if quota_guard.is_daily_quota_error(last_error):
+                    quota_guard.mark_exhausted(active_client)
                 continue
             else:
                 return f"[OCR Error: {last_error}]"

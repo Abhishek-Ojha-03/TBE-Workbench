@@ -10,6 +10,8 @@ __pycache__/
 
 # Database — contains local evaluation data, do not upload
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 

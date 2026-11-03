@@ -15,6 +15,7 @@ from ui.review_view import render_review_screen
 from ui.reports_view import render_reports_screen
 from ui.accuracy_matrix_view import render_accuracy_matrix_screen
 from ui.commercial_view import render_commercial_screen
+from ui.archive_view import render_archive_screen
 
 # Page configuration
 st.set_page_config(
@@ -110,7 +111,38 @@ def render_home_page():
             if not completed_tenders:
                 st.info("No completed tenders yet.")
             else:
-                for tender in completed_tenders:
+                # Search/filter bar — this is the "find a similar past tender" entry
+                # point: search by NIT number or description, optionally narrow by
+                # date range, right where someone would already be looking.
+                with st.expander("🔍 Search Past Tenders", expanded=True):
+                    col_search, col_from, col_to = st.columns([2, 1, 1])
+                    with col_search:
+                        search_text = st.text_input(
+                            "Search by NIT No. or Description",
+                            placeholder="e.g. 11kV VCB, BSES/EE/2026/014",
+                            key="archive_search_text"
+                        )
+                    with col_from:
+                        date_from = st.date_input("From", value=None, key="archive_search_from")
+                    with col_to:
+                        date_to = st.date_input("To", value=None, key="archive_search_to")
+
+                filtered_tenders = completed_tenders
+                if search_text.strip():
+                    q = search_text.strip().lower()
+                    filtered_tenders = [
+                        t for t in filtered_tenders
+                        if q in t.nit_no.lower() or q in t.description.lower()
+                    ]
+                if date_from:
+                    filtered_tenders = [t for t in filtered_tenders if t.created_at.date() >= date_from]
+                if date_to:
+                    filtered_tenders = [t for t in filtered_tenders if t.created_at.date() <= date_to]
+
+                if not filtered_tenders:
+                    st.info("No completed tenders match this search.")
+
+                for tender in filtered_tenders:
                     with st.container():
                         col_info, col_bidders, col_action = st.columns([3, 1, 1])
                         with col_info:
@@ -121,8 +153,7 @@ def render_home_page():
                         with col_action:
                             st.write("")
                             if st.button("View Archive 👁️", key=f"view_{tender.id}", use_container_width=True):
-                                st.session_state["active_tender_id"] = tender.id
-                                st.session_state["current_step"] = "Reports & Completion"
+                                st.session_state["archive_tender_id"] = tender.id
                                 st.rerun()
                         st.markdown("---")
 
@@ -132,10 +163,25 @@ def render_home_page():
 
 def main():
     active_tender_id = st.session_state.get("active_tender_id")
-    
+    archive_tender_id = st.session_state.get("archive_tender_id")
+
     with st.sidebar:
         st.header("⚡ TBE Navigation")
-        if active_tender_id:
+        if archive_tender_id:
+            # Archive mode has its own minimal sidebar — deliberately no
+            # workflow radio (Specification / Working Excel / etc.), since
+            # those steps don't apply to a tender that's already completed.
+            db = get_db_session()
+            archive_tender = get_tender_by_id(db, archive_tender_id)
+            db.close()
+
+            if archive_tender:
+                st.success(f"**Archived Tender:** `{archive_tender.nit_no}`")
+                st.caption(archive_tender.description)
+            if st.button("⬅️ Back to Home", use_container_width=True):
+                del st.session_state["archive_tender_id"]
+                st.rerun()
+        elif active_tender_id:
             db = get_db_session()
             active_tender = get_tender_by_id(db, active_tender_id)
             db.close()
@@ -174,7 +220,18 @@ def main():
             st.info("Select or create a tender to access the evaluation steps.")
 
     # Main Body Router
-    if not active_tender_id:
+    if archive_tender_id:
+        db = get_db_session()
+        tender = get_tender_by_id(db, archive_tender_id)
+        try:
+            if not tender:
+                st.error("Tender not found.")
+                del st.session_state["archive_tender_id"]
+                st.rerun()
+            render_archive_screen(db, tender)
+        finally:
+            db.close()
+    elif not active_tender_id:
         render_home_page()
     else:
         db = get_db_session()

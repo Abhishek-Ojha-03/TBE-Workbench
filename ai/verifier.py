@@ -233,7 +233,10 @@ def verify_requirement_for_bidder(
                     setattr(active_client, "_daily_exhausted", True)
                     continue
                 elif "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
-                    quota_guard.mark_exhausted(active_client)
+                    # Only a genuine per-day quota error locks the key out
+                    # until tomorrow — a brief RPM burst just moves on.
+                    if quota_guard.is_daily_quota_error(err_msg):
+                        quota_guard.mark_exhausted(active_client)
                     continue
                 elif "500" in err_msg or "503" in err_msg or "UNAVAILABLE" in err_msg or "INTERNAL" in err_msg:
                     continue
@@ -486,8 +489,11 @@ def verify_requirements_batch_for_bidder(
                     setattr(active_client, "_daily_exhausted", True)
                     continue
                 elif "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
-                    # Key hit momentary 15 RPM window; failover immediately to next key
-                    quota_guard.mark_exhausted(active_client)
+                    # Key hit momentary 15 RPM window; failover immediately to next key.
+                    # Only mark as exhausted-until-tomorrow if this is actually a
+                    # per-day quota error, not just this momentary RPM burst.
+                    if quota_guard.is_daily_quota_error(err_msg):
+                        quota_guard.mark_exhausted(active_client)
                     continue
                 elif "500" in err_msg or "503" in err_msg or "UNAVAILABLE" in err_msg or "INTERNAL" in err_msg:
                     # Transient Google server spike; failover immediately to next key
