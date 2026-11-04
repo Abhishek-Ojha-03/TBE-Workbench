@@ -16,8 +16,9 @@ from api.schemas import (
     BulkZipIngestResponse,
     VerifyBidderResponse,
     VerifyAllBiddersResponse,
+    BidderDocumentResponse,
 )
-from db.models import Bidder, Finding
+from db.models import Bidder, Document, Finding
 from db.repository import get_tender_by_id
 from db.baseline_service import get_bidders_for_tender, get_latest_baseline, get_baseline_requirements
 from reading.ingest import ingest_documents_concurrently
@@ -37,6 +38,20 @@ def _normalize_bidder_name(name: str) -> str:
     cleaned = re.sub(r"[_\-.,&]", " ", name.lower())
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
+
+
+@router.get("/bidders/{bidder_id}/documents", response_model=List[BidderDocumentResponse])
+def list_bidder_documents(tender_id: int, bidder_id: int, db: Session = Depends(get_db)):
+    """Matches the 'Submitted Files' list under each bidder tab."""
+    tender = get_tender_by_id(db, tender_id)
+    if not tender:
+        raise HTTPException(status_code=404, detail="Tender not found")
+
+    docs = db.query(Document).filter(Document.bidder_id == bidder_id).all()
+    return [
+        BidderDocumentResponse(id=d.id, file_name=d.file_name, page_count=len(d.pages))
+        for d in docs
+    ]
 
 
 @router.post("/bidders/{bidder_id}/documents", response_model=IngestDocumentsResponse)

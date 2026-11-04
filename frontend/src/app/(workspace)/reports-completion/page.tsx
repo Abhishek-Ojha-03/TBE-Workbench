@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import WorkspaceHeader from "@/components/layout/workspace-header";
 import Button from "@/components/ui/button";
@@ -9,10 +9,12 @@ import Badge from "@/components/ui/badge";
 import {
   ApiError,
   ComplianceRow,
+  DeltaReverifyProgress,
   completeTender,
   downloadMom,
   downloadTer,
   draftClarificationLetter,
+  getClarificationReplyProgress,
   getComplianceMatrix,
   listBidders,
   uploadClarificationReply,
@@ -35,6 +37,16 @@ function UploadIcon() {
       <path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3" />
     </svg>
   );
+}
+
+function deltaStageLabel(progress: DeltaReverifyProgress | undefined): string {
+  if (!progress) return "Starting...";
+  if (progress.status === "uploading") return "Uploading files...";
+  if (progress.status === "ingesting") return "Ingesting clarification documents...";
+  if (progress.status === "reverifying") {
+    return `Re-verifying clauses (${progress.rechecked_count}/${progress.total_flagged})...`;
+  }
+  return "Processing...";
 }
 
 function riskTone(risk: string): "violet" | "neutral" {
@@ -177,6 +189,10 @@ export default function ReportsCompletionPage() {
   const [letter, setLetter] = useState<string | null>(null);
   const [flaggedCount, setFlaggedCount] = useState<number | null>(null);
   const [replyFiles, setReplyFiles] = useState<File[]>([]);
+  // Flips true once a delta re-verify run has been started; never reset to
+  // false by us — same convention as Specification's uploadStarted, the
+  // progress query's own refetchInterval stops itself once status settles.
+  const [deltaStarted, setDeltaStarted] = useState(false);
 
   const biddersQuery = useQuery({
     queryKey: ["bidders", tenderId],
@@ -205,11 +221,41 @@ export default function ReportsCompletionPage() {
   const deltaMutation = useMutation({
     mutationFn: () => uploadClarificationReply(tenderId as number, activeBidder!.id, replyFiles),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["compliance-matrix", tenderId] });
-      queryClient.invalidateQueries({ queryKey: ["bidders", tenderId] });
+      setDeltaStarted(true);
     },
     onError: (err) => alert(err instanceof ApiError ? err.message : "Delta re-verification failed."),
   });
+
+  const deltaProgressQuery = useQuery({
+    queryKey: ["clarification-reply-progress", tenderId, activeBidder?.id],
+    queryFn: () => getClarificationReplyProgress(tenderId as number, activeBidder!.id),
+    enabled: tenderId !== null && !!activeBidder && deltaStarted,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "uploading" || status === "ingesting" || status === "reverifying" ? 1500 : false;
+    },
+  });
+
+  const deltaStatus = deltaProgressQuery.data?.status;
+  const deltaIsRunning =
+    deltaStarted && deltaStatus !== "complete" && deltaStatus !== "error" && deltaStatus !== undefined;
+
+  // Side effect only (cache invalidation) — no setState here, same pattern
+  // Specification's completion effect uses, with the same re-trigger guard.
+  const hasHandledDeltaCompletionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (deltaStatus === "complete" && hasHandledDeltaCompletionRef.current !== "complete") {
+      hasHandledDeltaCompletionRef.current = "complete";
+      queryClient.invalidateQueries({ queryKey: ["compliance-matrix", tenderId] });
+      queryClient.invalidateQueries({ queryKey: ["bidders", tenderId] });
+    }
+    if (deltaStatus === "error") {
+      hasHandledDeltaCompletionRef.current = "error";
+    }
+    if (deltaStatus === "uploading" || deltaStatus === "ingesting" || deltaStatus === "reverifying") {
+      hasHandledDeltaCompletionRef.current = null;
+    }
+  }, [deltaStatus, queryClient, tenderId]);
 
   const completeMutation = useMutation({
     mutationFn: () => completeTender(tenderId as number),
@@ -310,6 +356,7 @@ export default function ReportsCompletionPage() {
                 setLetter(null);
                 setFlaggedCount(null);
                 setReplyFiles([]);
+                setDeltaStarted(false);
               }}
               className="rounded-md border border-neutral-50 bg-white px-4 py-2.5 text-b2 text-neutral-300 focus:outline-none"
             >
@@ -404,26 +451,51 @@ export default function ReportsCompletionPage() {
             {replyFiles.length > 0 && (
               <Button
                 variant="primary"
-                disabled={deltaMutation.isPending || !activeBidder}
+                disabled={deltaMutation.isPending || deltaIsRunning || !activeBidder}
                 onClick={() => deltaMutation.mutate()}
               >
                 {deltaMutation.isPending
-                  ? "Indexing documents and re-verifying..."
+                  ? "Uploading..."
+                  : deltaIsRunning
+                  ? deltaStageLabel(deltaProgressQuery.data)
                   : `Run Delta Re-Verification (${replyFiles.length} files)`}
               </Button>
             )}
 
-            {deltaMutation.data && (
+            {deltaIsRunning && (
+              <div className="mt-3 h-2 w-64 overflow-hidden rounded-full bg-neutral-50">
+                <div
+                  className="h-2 rounded-full bg-violet-300 transition-all"
+                  style={{
+                    width:
+                      deltaStatus === "reverifying" && deltaProgressQuery.data
+                        ? `${Math.max(
+                            15,
+                            (deltaProgressQuery.data.rechecked_count /
+                              Math.max(deltaProgressQuery.data.total_flagged, 1)) *
+                              100
+                          )}%`
+                        : "15%",
+                  }}
+                />
+              </div>
+            )}
+
+            {deltaStatus === "error" && deltaProgressQuery.data?.error && (
+              <p className="mt-3 text-b3 text-red-500">{deltaProgressQuery.data.error}</p>
+            )}
+
+            {deltaStatus === "complete" && deltaProgressQuery.data && deltaProgressQuery.data.rechecked_count > 0 && (
               <div className="mt-3 rounded-md border-l-4 border-violet-300 bg-neutral-50 px-4 py-3">
                 <p className="mb-1 text-b3 font-medium text-neutral-300">
                   Re-Verification Result for {activeBidder?.name}
                 </p>
                 <p className="text-b3 text-neutral-200">
                   Updated Qualification Status:{" "}
-                  <span className="font-medium text-violet-300">{deltaMutation.data.new_status}</span>
+                  <span className="font-medium text-violet-300">{deltaProgressQuery.data.new_status}</span>
                   <br />
-                  Clauses Re-Checked: {deltaMutation.data.rechecked_count} (Clauses:{" "}
-                  {deltaMutation.data.clauses.join(", ")})
+                  Clauses Re-Checked: {deltaProgressQuery.data.rechecked_count} (Clauses:{" "}
+                  {deltaProgressQuery.data.clauses.join(", ")})
                 </p>
               </div>
             )}

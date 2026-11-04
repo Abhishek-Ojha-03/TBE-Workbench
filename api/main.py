@@ -26,6 +26,7 @@ from api.routes import (
     commercial,
     accuracy,
     archive,
+    pages,
 )
 
 app = FastAPI(
@@ -72,3 +73,4 @@ app.include_router(reports.router)
 app.include_router(commercial.router)
 app.include_router(accuracy.router)
 app.include_router(archive.router)
+app.include_router(pages.router)

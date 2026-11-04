@@ -239,6 +239,16 @@ export function downloadTer(tenderId: number): Promise<void> {
 }
 
 // ── TBE Working Excel: document ingestion + AI verification ───────────
+export interface BidderDocument {
+  id: number;
+  file_name: string;
+  page_count: number;
+}
+
+export function listBidderDocuments(tenderId: number, bidderId: number): Promise<BidderDocument[]> {
+  return request<BidderDocument[]>(`/tenders/${tenderId}/bidders/${bidderId}/documents`);
+}
+
 export interface IngestDocumentsResult {
   ingested_count: number;
 }
@@ -302,6 +312,12 @@ export function verifyAllBidders(tenderId: number): Promise<VerifyAllBiddersResu
 export interface Evidence {
   quoted_text: string | null;
   page_number: number | null;
+  document_name: string | null;
+  page_id: number | null;
+}
+
+export function getPageImageUrl(pageId: number): string {
+  return `${API_BASE_URL}/pages/${pageId}/image`;
 }
 
 export interface AuditLogEntry {
@@ -318,6 +334,7 @@ export interface Finding {
   requirement_id: number;
   clause: string | null;
   requirement_text: string;
+  is_QR: boolean;
   ai_status: string | null;
   engineer_status: string | null;
   remark: string | null;
@@ -390,22 +407,42 @@ export function draftClarificationLetter(
   );
 }
 
-export interface DeltaReverifyResult {
+export type DeltaReverifyStatus = "uploading" | "ingesting" | "reverifying" | "complete" | "error";
+
+export interface DeltaReverifyProgress {
+  status: DeltaReverifyStatus;
+  total_flagged: number;
   rechecked_count: number;
-  new_status: string;
+  new_status: string | null;
   clauses: string[];
+  error: string | null;
 }
 
+/**
+ * Kicks off upload + ingest + delta re-verify in the background and
+ * returns immediately — same async-with-polling pattern as
+ * uploadSpecification/getSpecificationProgress. Poll
+ * getClarificationReplyProgress() for live stage/status.
+ */
 export function uploadClarificationReply(
   tenderId: number,
   bidderId: number,
   files: File[]
-): Promise<DeltaReverifyResult> {
+): Promise<{ status: "uploading" }> {
   const formData = new FormData();
   files.forEach((f) => formData.append("files", f));
-  return request<DeltaReverifyResult>(
+  return request<{ status: "uploading" }>(
     `/tenders/${tenderId}/bidders/${bidderId}/clarification-reply`,
     { method: "POST", body: formData }
+  );
+}
+
+export function getClarificationReplyProgress(
+  tenderId: number,
+  bidderId: number
+): Promise<DeltaReverifyProgress> {
+  return request<DeltaReverifyProgress>(
+    `/tenders/${tenderId}/bidders/${bidderId}/clarification-reply/progress`
   );
 }
 

@@ -12,6 +12,7 @@ import {
   confirmFinding,
   flagFinding,
   getFindings,
+  getPageImageUrl,
   listBidders,
   overrideFinding,
   qualifyBidder,
@@ -40,6 +41,7 @@ function FindingCard({
   const [overrideChoice, setOverrideChoice] = useState<"Complied" | "Not Complied" | "N/A">("Complied");
   const [overrideReason, setOverrideReason] = useState("");
   const [clarificationNote, setClarificationNote] = useState("");
+  const [imageFailed, setImageFailed] = useState(false);
 
   const displayStatus = finding.engineer_status ?? finding.ai_status ?? "Not yet evaluated";
 
@@ -73,9 +75,23 @@ function FindingCard({
               <p className="mb-1 text-b3 text-neutral-100">
                 Cited Evidence {finding.evidence?.page_number ? `(Page ${finding.evidence.page_number})` : ""}
               </p>
-              <p className="rounded-md bg-neutral-50 px-4 py-3 text-b3 italic text-neutral-75">
+              <p className="mb-3 rounded-md bg-neutral-50 px-4 py-3 text-b3 italic text-neutral-75">
                 {finding.evidence?.quoted_text || "Run AI Verification for this bidder to see cited evidence here."}
               </p>
+              {finding.evidence?.page_id && !imageFailed && (
+                <>
+                  <p className="mb-1 text-b3 text-neutral-100">
+                    Original Document Preview (check numbers &amp; ratings)
+                  </p>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- external backend-served file, not a Next-optimizable local asset */}
+                  <img
+                    src={getPageImageUrl(finding.evidence.page_id)}
+                    alt={`Page ${finding.evidence.page_number ?? ""} of ${finding.evidence.document_name ?? "the cited document"}`}
+                    onError={() => setImageFailed(true)}
+                    className="w-full rounded-md border border-neutral-50"
+                  />
+                </>
+              )}
             </div>
           </div>
 

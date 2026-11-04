@@ -101,6 +101,12 @@ class IngestDocumentsResponse(BaseModel):
     ingested_count: int
 
 
+class BidderDocumentResponse(BaseModel):
+    id: int
+    file_name: str
+    page_count: int
+
+
 class BulkZipIngestResult(BaseModel):
     bidder_name: str
     bidder_id: Optional[int]
@@ -129,6 +135,8 @@ class VerifyAllBiddersResponse(BaseModel):
 class EvidenceResponse(BaseModel):
     quoted_text: str
     page_number: Optional[int] = None
+    document_name: Optional[str] = None
+    page_id: Optional[int] = None
 
 
 class AuditLogResponse(BaseModel):
@@ -145,6 +153,7 @@ class FindingResponse(BaseModel):
     requirement_id: int
     clause: Optional[str]
     requirement_text: str
+    is_QR: bool = False
     ai_status: str
     engineer_status: Optional[str]
     remark: Optional[str]
@@ -183,10 +192,17 @@ class ClarificationLetterResponse(BaseModel):
     flagged_count: int
 
 
-class DeltaReverifyResponse(BaseModel):
+class ClarificationReplyStartedResponse(BaseModel):
+    status: str  # always "uploading" immediately after kickoff
+
+
+class DeltaReverifyProgressResponse(BaseModel):
+    status: str  # "uploading" | "ingesting" | "reverifying" | "complete" | "error"
+    total_flagged: int
     rechecked_count: int
-    new_status: str
-    clauses: List[str]
+    new_status: Optional[str] = None
+    clauses: List[str] = []
+    error: Optional[str] = None
 
 
 # ── Commercial Evaluation ───────────────────────────────────────────────

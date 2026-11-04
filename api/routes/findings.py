@@ -36,6 +36,7 @@ def _to_finding_response(db: Session, f: Finding) -> FindingResponse:
         requirement_id=f.requirement_id,
         clause=req.clause if req else None,
         requirement_text=req.text if req else "",
+        is_QR=bool(req.is_QR) if req else False,
         ai_status=f.ai_status,
         engineer_status=f.engineer_status,
         remark=f.remark,
@@ -43,6 +44,10 @@ def _to_finding_response(db: Session, f: Finding) -> FindingResponse:
             EvidenceResponse(
                 quoted_text=evidence.quoted_text,
                 page_number=evidence.page.page_number if evidence.page else None,
+                document_name=(
+                    evidence.page.document.file_name if evidence.page and evidence.page.document else None
+                ),
+                page_id=evidence.page.id if evidence.page else None,
             )
             if evidence
             else None

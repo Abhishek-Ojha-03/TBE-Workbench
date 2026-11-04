@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 
 from db.models import Finding, Bidder, Tender, Requirement, AuditLog, Document
 from reading.ingest import ingest_pdf_document
-from ai.verifier import verify_requirement_for_bidder
 from ai.client import get_client, MODEL_NAME
 from db.audit_service import log_audit_entry
 
@@ -143,37 +142,51 @@ def handle_clarification_response(
     return doc
 
 
-def recheck_flagged_findings(db: Session, bidder_id: int) -> List[Finding]:
+def recheck_flagged_findings(db: Session, bidder_id: int, progress_callback=None) -> List[Finding]:
     """
     Re-verifies ONLY rows with needs_recheck == True for this bidder.
     Preserves audit history.
+
+    Uses the same batched Gemini verification (up to 12 clauses per call,
+    via verify_requirements_batch_for_bidder) as "Run AI Verification for
+    ALL Bidders" — previously this called verify_requirement_for_bidder
+    once per flagged clause sequentially, which worked but was N separate
+    round-trips where the batch path does ceil(N/12).
     """
+    from ai.verifier import verify_requirements_batch_for_bidder
+
     flagged = (
         db.query(Finding)
         .filter(Finding.bidder_id == bidder_id, Finding.needs_recheck == True)
         .all()
     )
+    if not flagged:
+        return []
 
-    rechecked = []
-    for f in flagged:
-        req = f.requirement
-        bidder = f.bidder
-        old_ai_status = f.ai_status
+    bidder = flagged[0].bidder
+    old_statuses = {f.id: f.ai_status for f in flagged}
+    requirements = [f.requirement for f in flagged]
 
-        # Re-run Step 7 verification engine
-        updated_finding = verify_requirement_for_bidder(db, req, bidder)
-        updated_finding.needs_recheck = False
+    rechecked: List[Finding] = []
+    BATCH_SIZE = 12
+    total = len(requirements)
+    for b_start in range(0, total, BATCH_SIZE):
+        batch = requirements[b_start : b_start + BATCH_SIZE]
+        batch_findings = verify_requirements_batch_for_bidder(db, batch, bidder)
+        rechecked.extend(batch_findings)
+        if progress_callback:
+            progress_callback(min(b_start + len(batch), total), total)
 
+    for f in rechecked:
         log_audit_entry(
             db=db,
-            finding_id=updated_finding.id,
+            finding_id=f.id,
             who="AI Re-verification Engine",
             what_changed="ai_status",
-            old_value=old_ai_status,
-            new_value=updated_finding.ai_status,
+            old_value=old_statuses.get(f.id),
+            new_value=f.ai_status,
             reason="Re-evaluated with new clarification submission."
         )
-        rechecked.append(updated_finding)
 
     db.commit()
     return rechecked
