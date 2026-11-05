@@ -4,9 +4,17 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-type IconName = "chart" | "grid" | "package";
+type IconName = "chart" | "grid" | "package" | "home";
 
 function Icon({ name, className = "" }: { name: IconName; className?: string }) {
+  if (name === "home") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
+        <path d="M3 10.5L12 3l9 7.5" />
+        <path d="M5 9.5V20a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V9.5" />
+      </svg>
+    );
+  }
   if (name === "chart") {
     return (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
@@ -39,6 +47,7 @@ function Icon({ name, className = "" }: { name: IconName; className?: string }) 
 // not exported directly from the Figma file — swap for the real exported
 // SVGs when available, per Rule 2 (use original assets).
 const NAV_ITEMS: { label: string; href: string; icon: IconName }[] = [
+  { label: "Home", href: "/", icon: "home" },
   { label: "Specification", href: "/specification", icon: "chart" },
   { label: "Requirements & Setup", href: "/requirements-setup", icon: "grid" },
   { label: "TBE Working Excel", href: "/working-excel", icon: "chart" },
