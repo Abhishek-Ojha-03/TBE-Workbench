@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import WorkspaceHeader from "@/components/layout/workspace-header";
 import Button from "@/components/ui/button";
 import Badge from "@/components/ui/badge";
+import InfoHint from "@/components/ui/info-hint";
 import {
   ApiError,
   Bidder,
@@ -456,31 +457,49 @@ export default function WorkingExcelPage() {
             {/* KPI cards */}
             <div className="mb-5 grid grid-cols-6 gap-3">
               <div className="rounded-lg border border-neutral-50 p-4">
-                <p className="text-b3 text-neutral-100">Match Accuracy</p>
+                <p className="text-b3 text-neutral-100">
+                  Match Accuracy
+                  <InfoHint text="Share of this bidder's clauses marked Complied out of all evaluated clauses." />
+                </p>
                 <p className="text-h1 font-semibold text-neutral-300">
                   {totalClauses > 0 ? `${accuracyPct}%` : "—"}
                 </p>
               </div>
               <div className="rounded-lg border border-neutral-50 p-4">
-                <p className="text-b3 text-neutral-100">Complied</p>
+                <p className="text-b3 text-neutral-100">
+                  Complied
+                  <InfoHint text="Clauses the AI (or engineer override) marked as Complied, out of total evaluated." />
+                </p>
                 <p className="text-h1 font-semibold text-neutral-300">
                   {totalClauses > 0 ? `${compliedCount} / ${totalClauses}` : "—"}
                 </p>
               </div>
               <div className="rounded-lg border border-neutral-50 p-4">
-                <p className="text-b3 text-neutral-100">Not Complied</p>
+                <p className="text-b3 text-neutral-100">
+                  Not Complied
+                  <InfoHint text="Clauses marked Not Complied — the bidder's offer deviates from the requirement." />
+                </p>
                 <p className="text-h1 font-semibold text-neutral-300">{totalClauses > 0 ? notCompliedCount : "—"}</p>
               </div>
               <div className="rounded-lg border border-neutral-50 p-4">
-                <p className="text-b3 text-neutral-100">Needs Review</p>
+                <p className="text-b3 text-neutral-100">
+                  Needs Review
+                  <InfoHint text="Clauses the AI couldn't confidently verdict — flagged for manual engineer review." />
+                </p>
                 <p className="text-h1 font-semibold text-neutral-300">{totalClauses > 0 ? reviewCount : "—"}</p>
               </div>
               <div className="rounded-lg border border-neutral-50 p-4">
-                <p className="text-b3 text-neutral-100">Ingest Time</p>
+                <p className="text-b3 text-neutral-100">
+                  Ingest Time
+                  <InfoHint text="How long it took to upload and parse this bidder's documents in this session." />
+                </p>
                 <p className="text-h1 font-semibold text-neutral-300">{ingestTimeDisplay}</p>
               </div>
               <div className="rounded-lg border border-neutral-50 p-4">
-                <p className="text-b3 text-neutral-100">Verify Time</p>
+                <p className="text-b3 text-neutral-100">
+                  Verify Time
+                  <InfoHint text="How long AI verification took for this bidder in this session (estimated until run)." />
+                </p>
                 <p className="text-h1 font-semibold text-neutral-300">{verifyTimeDisplay}</p>
               </div>
             </div>
@@ -525,11 +544,20 @@ export default function WorkingExcelPage() {
                     <thead className="sticky top-0 bg-neutral-50 text-neutral-100">
                       <tr>
                         <th className="px-3 py-2 font-normal">Clause</th>
-                        <th className="px-3 py-2 font-normal">Category</th>
+                        <th className="px-3 py-2 font-normal">
+                          Category
+                          <InfoHint text="QR = Qualification Requirement (mandatory to qualify). Technical = scored but not disqualifying on its own." />
+                        </th>
                         <th className="px-3 py-2 font-normal">Specification Requirement</th>
-                        <th className="px-3 py-2 font-normal">Bidder Offered Quote</th>
+                        <th className="px-3 py-2 font-normal">
+                          Bidder Offered Quote
+                          <InfoHint text="The exact verbatim text the AI cited from the bidder's document as evidence, with its source page." />
+                        </th>
                         <th className="px-3 py-2 font-normal">Status</th>
-                        <th className="px-3 py-2 font-normal">Parameter Accuracy</th>
+                        <th className="px-3 py-2 font-normal">
+                          Parameter Accuracy
+                          <InfoHint text="100% if this clause is Complied, 0% if Not Complied, or Pending Review while unresolved." />
+                        </th>
                         <th className="px-3 py-2 font-normal">Remarks</th>
                       </tr>
                     </thead>

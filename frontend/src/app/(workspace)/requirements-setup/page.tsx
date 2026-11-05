@@ -45,6 +45,23 @@ function ChevronIcon() {
   );
 }
 
+function EditIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M20 6L9 17l-5-5" />
+    </svg>
+  );
+}
+
 function badgeToneFor(status: Bidder["final_status"]): "violet" | "neutral" {
   return status === "Qualified" ? "violet" : "neutral";
 }
@@ -242,7 +259,13 @@ export default function RequirementsSetupPage() {
   // is sent to the backend until "Save Changes" creates a new baseline
   // version from the full edited list (save_baseline_edits never patches a
   // single row in place).
-  const [pendingEdits, setPendingEdits] = useState<Record<number, { is_QR?: boolean; not_applicable?: boolean }>>({});
+  const [pendingEdits, setPendingEdits] = useState<
+    Record<number, { is_QR?: boolean; not_applicable?: boolean; clause?: string | null; text?: string; page_number?: number | null }>
+  >({});
+  // Row currently showing editable inputs for clause/page/text — edits are
+  // still just staged in pendingEdits until "Save Changes" is clicked,
+  // same flow as the QR / Mark N/A checkboxes.
+  const [editingRowId, setEditingRowId] = useState<number | null>(null);
 
   const versionsQuery = useQuery({
     queryKey: ["baseline-versions", tenderId],
@@ -313,17 +336,21 @@ export default function RequirementsSetupPage() {
   const saveChangesMutation = useMutation({
     mutationFn: async () => {
       const current = requirementsQuery.data ?? [];
-      const asInput = current.map((r: Requirement) => ({
-        clause: r.clause,
-        text: r.text,
-        page_number: r.page_number,
-        is_QR: pendingEdits[r.id]?.is_QR ?? r.is_QR,
-        not_applicable: pendingEdits[r.id]?.not_applicable ?? r.not_applicable,
-      }));
+      const asInput = current.map((r: Requirement) => {
+        const edit = pendingEdits[r.id];
+        return {
+          clause: edit && "clause" in edit ? edit.clause ?? null : r.clause,
+          text: edit?.text ?? r.text,
+          page_number: edit && "page_number" in edit ? edit.page_number ?? null : r.page_number,
+          is_QR: edit?.is_QR ?? r.is_QR,
+          not_applicable: edit?.not_applicable ?? r.not_applicable,
+        };
+      });
       return createBaselineVersion(tenderId as number, asInput);
     },
     onSuccess: (newVersion) => {
       setPendingEdits({});
+      setEditingRowId(null);
       setExplicitVersion(newVersion.version_number);
       queryClient.invalidateQueries({ queryKey: ["baseline-versions", tenderId] });
       queryClient.invalidateQueries({ queryKey: ["requirements-for-version", tenderId] });
@@ -333,9 +360,16 @@ export default function RequirementsSetupPage() {
     },
   });
 
-  function toggleField(reqId: number, field: "is_QR" | "not_applicable", original: boolean, next: boolean) {
+  type EditableField = "is_QR" | "not_applicable" | "clause" | "text" | "page_number";
+
+  function updateEdit<F extends EditableField>(
+    reqId: number,
+    field: F,
+    original: unknown,
+    next: unknown
+  ) {
     setPendingEdits((prev) => {
-      const existing = { ...(prev[reqId] ?? {}) };
+      const existing: Record<string, unknown> = { ...(prev[reqId] ?? {}) };
       if (next === original) {
         delete existing[field];
       } else {
@@ -345,11 +379,13 @@ export default function RequirementsSetupPage() {
       if (Object.keys(existing).length === 0) {
         delete updated[reqId];
       } else {
-        updated[reqId] = existing;
+        updated[reqId] = existing as (typeof prev)[number];
       }
       return updated;
     });
   }
+
+  const toggleField = updateEdit;
 
   const isDirty = Object.keys(pendingEdits).length > 0;
 
@@ -461,19 +497,20 @@ export default function RequirementsSetupPage() {
                   <th className="w-24 px-5 py-3 font-normal">Page no.</th>
                   <th className="px-5 py-3 font-normal">Requirements Description</th>
                   <th className="w-24 px-5 py-3 text-right font-normal">Mark N/A</th>
+                  <th className="w-14 px-5 py-3 text-right font-normal">Edit</th>
                 </tr>
               </thead>
               <tbody>
                 {requirementsQuery.isLoading && (
                   <tr>
-                    <td colSpan={5} className="px-5 py-8 text-center text-b2 text-neutral-75">
+                    <td colSpan={6} className="px-5 py-8 text-center text-b2 text-neutral-75">
                       Loading requirements...
                     </td>
                   </tr>
                 )}
                 {!requirementsQuery.isLoading && requirements.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-5 py-8 text-center text-b2 text-neutral-75">
+                    <td colSpan={6} className="px-5 py-8 text-center text-b2 text-neutral-75">
                       No requirements yet — upload a specification on the Specification screen first.
                     </td>
                   </tr>
@@ -481,6 +518,11 @@ export default function RequirementsSetupPage() {
                 {requirements.map((row) => {
                   const effQR = pendingEdits[row.id]?.is_QR ?? row.is_QR;
                   const effNA = pendingEdits[row.id]?.not_applicable ?? row.not_applicable;
+                  const effClause = pendingEdits[row.id]?.clause !== undefined ? pendingEdits[row.id]!.clause : row.clause;
+                  const effPage =
+                    pendingEdits[row.id]?.page_number !== undefined ? pendingEdits[row.id]!.page_number : row.page_number;
+                  const effText = pendingEdits[row.id]?.text ?? row.text;
+                  const isEditing = editingRowId === row.id;
                   return (
                     <tr key={row.id} className="border-t border-neutral-50 text-b2 text-neutral-300">
                       <td className="px-5 py-4">
@@ -492,9 +534,44 @@ export default function RequirementsSetupPage() {
                           className="h-4 w-4 rounded border-neutral-75 accent-violet-300 disabled:cursor-not-allowed"
                         />
                       </td>
-                      <td className="px-5 py-4">{row.clause ?? "—"}</td>
-                      <td className="px-5 py-4">{row.page_number ?? "—"}</td>
-                      <td className="px-5 py-4 text-neutral-200">{row.text}</td>
+                      <td className="px-5 py-4">
+                        {isEditing ? (
+                          <input
+                            value={effClause ?? ""}
+                            onChange={(e) => updateEdit(row.id, "clause", row.clause, e.target.value || null)}
+                            className="w-20 rounded border border-neutral-50 px-2 py-1 text-b3 focus:border-violet-200 focus:outline-none"
+                          />
+                        ) : (
+                          effClause ?? "—"
+                        )}
+                      </td>
+                      <td className="px-5 py-4">
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            min={1}
+                            value={effPage ?? ""}
+                            onChange={(e) =>
+                              updateEdit(row.id, "page_number", row.page_number, e.target.value ? Number(e.target.value) : null)
+                            }
+                            className="w-16 rounded border border-neutral-50 px-2 py-1 text-b3 focus:border-violet-200 focus:outline-none"
+                          />
+                        ) : (
+                          effPage ?? "—"
+                        )}
+                      </td>
+                      <td className="px-5 py-4 text-neutral-200">
+                        {isEditing ? (
+                          <textarea
+                            value={effText}
+                            onChange={(e) => updateEdit(row.id, "text", row.text, e.target.value)}
+                            rows={2}
+                            className="w-full resize-none rounded border border-neutral-50 px-2 py-1 text-b3 focus:border-violet-200 focus:outline-none"
+                          />
+                        ) : (
+                          effText
+                        )}
+                      </td>
                       <td className="px-5 py-4 text-right">
                         <input
                           type="checkbox"
@@ -503,6 +580,17 @@ export default function RequirementsSetupPage() {
                           onChange={(e) => toggleField(row.id, "not_applicable", row.not_applicable, e.target.checked)}
                           className="h-4 w-4 rounded border-neutral-75 accent-violet-300 disabled:cursor-not-allowed"
                         />
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        <button
+                          type="button"
+                          aria-label={isEditing ? `Done editing ${row.clause ?? "clause"}` : `Edit ${row.clause ?? "clause"}`}
+                          disabled={!isViewingLatest}
+                          onClick={() => setEditingRowId(isEditing ? null : row.id)}
+                          className="text-neutral-200 hover:text-violet-300 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {isEditing ? <CheckIcon /> : <EditIcon />}
+                        </button>
                       </td>
                     </tr>
                   );
@@ -518,7 +606,13 @@ export default function RequirementsSetupPage() {
                 baseline version; previous versions stay available in history.
               </span>
               <div className="flex gap-2">
-                <Button variant="ghost" onClick={() => setPendingEdits({})}>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setPendingEdits({});
+                    setEditingRowId(null);
+                  }}
+                >
                   Discard
                 </Button>
                 <Button
@@ -597,6 +691,18 @@ export default function RequirementsSetupPage() {
                   disabled={!qaText.trim() || quickAddMutation.isPending}
                   onClick={() => {
                     setQuickAddError(null);
+                    const trimmedClause = qaClause.trim();
+                    if (trimmedClause) {
+                      const duplicate = requirements.some(
+                        (r) => (r.clause ?? "").trim().toLowerCase() === trimmedClause.toLowerCase()
+                      );
+                      if (duplicate) {
+                        setQuickAddError(
+                          `Clause "${trimmedClause}" already exists — use a different clause number/letter.`
+                        );
+                        return;
+                      }
+                    }
                     quickAddMutation.mutate();
                   }}
                 >

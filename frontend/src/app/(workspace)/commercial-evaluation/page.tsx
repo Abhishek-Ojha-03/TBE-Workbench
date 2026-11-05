@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import WorkspaceHeader from "@/components/layout/workspace-header";
 import Button from "@/components/ui/button";
 import Badge from "@/components/ui/badge";
+import InfoHint from "@/components/ui/info-hint";
 import {
   ApiError,
   CommercialRankingRow,
@@ -159,10 +160,16 @@ export default function CommercialEvaluationPage() {
               <table className="w-full text-left text-b3">
                 <thead className="bg-neutral-50 text-neutral-100">
                   <tr>
-                    <th className="px-4 py-3 font-normal">Rank</th>
+                    <th className="px-4 py-3 font-normal">
+                      Rank
+                      <InfoHint text="Commercial standing among qualified bidders — L1 is the lowest qualified quoted price, L2 the next, and so on." />
+                    </th>
                     <th className="px-4 py-3 font-normal">Bidder Name</th>
                     <th className="px-4 py-3 font-normal">Quoted Price</th>
-                    <th className="px-4 py-3 font-normal">% Above L1</th>
+                    <th className="px-4 py-3 font-normal">
+                      % Above L1
+                      <InfoHint text="How much higher this bidder's quoted price is compared to the lowest (L1) quoted price." />
+                    </th>
                     <th className="px-4 py-3 font-normal">Recommendation / Status</th>
                   </tr>
                 </thead>
