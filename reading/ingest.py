@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from db.models import Document, Page
 from db.connection import engine
+from db.storage import storage_enabled, upload_file
 from ai.client import extract_text_from_image
 
 # Directory for storing rendered scan page images for side-by-side verification
@@ -40,12 +41,22 @@ def read_page(pdf_doc: fitz.Document, page_index: int, document_id: int) -> Tupl
     # 1. Attempt digital text extraction with PyMuPDF
     raw_text = page.get_text("text").strip()
 
-    # Always save a lightweight grayscale page preview image for UI side-by-side evidence inspection
+    # Always save a lightweight grayscale page preview image for UI side-by-side evidence inspection.
+    # On a host with no persistent disk (e.g. Render free tier), save to Supabase Storage instead
+    # so the image survives a restart; storage_path:// prefix tells api/routes/pages.py which path
+    # to fetch it back from. Falls back to local disk when Supabase Storage isn't configured.
     image_filename = f"doc_{document_id}_p{page_num}.jpg"
-    image_path = os.path.join(PAGE_IMAGES_DIR, image_filename)
+    image_path = None
     try:
         pix = page.get_pixmap(dpi=100, colorspace=fitz.csGRAY)
-        pix.save(image_path)
+        if storage_enabled():
+            storage_path = f"page_images/{image_filename}"
+            if upload_file(pix.tobytes("jpg"), storage_path, "image/jpeg"):
+                image_path = f"storage://{storage_path}"
+        if image_path is None:
+            local_path = os.path.join(PAGE_IMAGES_DIR, image_filename)
+            pix.save(local_path)
+            image_path = local_path
     except Exception:
         image_path = None
 
@@ -160,10 +171,17 @@ def ingest_pdf_document(
 
         # Render high-quality 150 DPI page preview image for crisp UI inspection
         image_filename = f"doc_{doc_record.id}_p{page_num}.png"
-        image_path = os.path.join(PAGE_IMAGES_DIR, image_filename)
+        image_path = None
         try:
             pix = page.get_pixmap(dpi=150)
-            pix.save(image_path)
+            if storage_enabled():
+                storage_path = f"page_images/{image_filename}"
+                if upload_file(pix.tobytes("png"), storage_path, "image/png"):
+                    image_path = f"storage://{storage_path}"
+            if image_path is None:
+                local_path = os.path.join(PAGE_IMAGES_DIR, image_filename)
+                pix.save(local_path)
+                image_path = local_path
         except Exception:
             image_path = None
 

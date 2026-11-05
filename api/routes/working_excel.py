@@ -21,6 +21,7 @@ from api.schemas import (
 from db.models import Bidder, Document, Finding
 from db.repository import get_tender_by_id
 from db.baseline_service import get_bidders_for_tender, get_latest_baseline, get_baseline_requirements
+from db.storage import storage_enabled, download_file
 from reading.ingest import ingest_documents_concurrently
 from ai.verifier import verify_all_requirements_for_bidder, verify_all_bidders
 from ai.quota_guard import QuotaExhaustedError
@@ -79,15 +80,17 @@ def bulk_zip_ingest(tender_id: int, db: Session = Depends(get_db)):
     if not tender:
         raise HTTPException(status_code=404, detail="Tender not found")
 
-    zip_path = os.path.join("data", "bidder_zips", f"tender_{tender_id}_bidders.zip")
-    if not os.path.exists(zip_path):
-        raise HTTPException(
-            status_code=404,
-            detail="No saved ZIP found for this tender — upload one via 'Add Bidders from ZIP' on Requirements & Setup first.",
-        )
-
-    with open(zip_path, "rb") as f:
-        zip_bytes = f.read()
+    zip_filename = f"tender_{tender_id}_bidders.zip"
+    zip_bytes = download_file(f"bidder_zips/{zip_filename}") if storage_enabled() else None
+    if zip_bytes is None:
+        zip_path = os.path.join("data", "bidder_zips", zip_filename)
+        if not os.path.exists(zip_path):
+            raise HTTPException(
+                status_code=404,
+                detail="No saved ZIP found for this tender — upload one via 'Add Bidders from ZIP' on Requirements & Setup first.",
+            )
+        with open(zip_path, "rb") as f:
+            zip_bytes = f.read()
 
     zf = zipfile.ZipFile(__import__("io").BytesIO(zip_bytes))
     folder_to_files: dict[str, list[str]] = {}

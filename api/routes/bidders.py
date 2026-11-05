@@ -15,6 +15,7 @@ from api.deps import get_db
 from api.schemas import BidderCreateRequest, BidderResponse, BulkZipBidderResponse
 from db.repository import get_tender_by_id
 from db.baseline_service import get_bidders_for_tender, add_bidder, delete_bidder
+from db.storage import storage_enabled, upload_file
 
 router = APIRouter(prefix="/tenders/{tender_id}/bidders", tags=["bidders"])
 
@@ -96,13 +97,16 @@ async def bulk_add_bidders_from_zip(
         except ValueError:
             skipped.append(folder_name)
 
-    # Save the ZIP to disk so Working Excel can reuse it directly — same
-    # path convention the Streamlit app already uses, so either UI can
-    # pick it up.
-    zip_dir = os.path.join("data", "bidder_zips")
-    os.makedirs(zip_dir, exist_ok=True)
-    zip_save_path = os.path.join(zip_dir, f"tender_{tender_id}_bidders.zip")
-    with open(zip_save_path, "wb") as f:
-        f.write(zip_bytes)
+    # Save the ZIP so Working Excel can reuse it directly — same path
+    # convention the Streamlit app already uses, so either UI can pick it
+    # up. On a host with no persistent disk (e.g. Render free tier), save
+    # to Supabase Storage instead so it survives a restart.
+    zip_filename = f"tender_{tender_id}_bidders.zip"
+    saved_to_storage = storage_enabled() and upload_file(zip_bytes, f"bidder_zips/{zip_filename}", "application/zip")
+    if not saved_to_storage:
+        zip_dir = os.path.join("data", "bidder_zips")
+        os.makedirs(zip_dir, exist_ok=True)
+        with open(os.path.join(zip_dir, zip_filename), "wb") as f:
+            f.write(zip_bytes)
 
     return BulkZipBidderResponse(added=added, skipped=skipped)
