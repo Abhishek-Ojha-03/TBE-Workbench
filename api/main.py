@@ -35,14 +35,17 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Allow the local Next.js dev server to call this API. Tighten this list
-# (and move to an env-driven config) before any real deployment.
+# Allow the local Next.js dev server, plus the deployed Vercel frontend
+# (production domain + its preview/branch deployments), to call this API.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:3100",
+        "https://tbe-workbench.vercel.app",
+        "https://tbe-workbench-git-main-pythagoras2.vercel.app",
     ],
+    allow_origin_regex=r"https://tbe-workbench-.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
