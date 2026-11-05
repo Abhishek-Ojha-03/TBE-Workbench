@@ -266,10 +266,10 @@ export default function SpecificationPage() {
         {/* Right column: clause table */}
         <div>
           <h3 className="mb-4 text-h3 text-neutral-300">View &amp; Edit Extracted Clauses Right Here</h3>
-          <div className="overflow-hidden rounded-lg border border-neutral-50">
+          <div className="max-h-[480px] overflow-auto rounded-lg border border-neutral-50">
             <table className="w-full text-left">
-              <thead>
-                <tr className="bg-neutral-50/60 text-label text-neutral-100">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-neutral-50 text-label text-neutral-100">
                   <th className="w-28 px-5 py-3 font-normal">QR (Eligibility Gate)</th>
                   <th className="w-20 px-5 py-3 font-normal">Clause</th>
                   <th className="px-5 py-3 font-normal">Requirements Description</th>

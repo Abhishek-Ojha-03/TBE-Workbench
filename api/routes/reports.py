@@ -65,7 +65,11 @@ def compliance_matrix(tender_id: int, db: Session = Depends(get_db)):
 
     bidders = get_bidders_for_tender(db, tender_id)
     latest_b = get_latest_baseline(db, tender_id)
-    reqs = get_baseline_requirements(db, latest_b.id) if latest_b else []
+    all_reqs = get_baseline_requirements(db, latest_b.id) if latest_b else []
+    # Clauses marked N/A on Requirements & Setup are excluded from the
+    # compliance score/total — they're intentionally out of scope for this
+    # tender, not clauses a bidder failed to address.
+    reqs = [r for r in all_reqs if not r.not_applicable]
     req_ids = [r.id for r in reqs]
     total_reqs = len(reqs)
     qr_ids = {r.id for r in reqs if r.is_QR}

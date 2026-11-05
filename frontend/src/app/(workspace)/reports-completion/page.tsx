@@ -199,7 +199,11 @@ export default function ReportsCompletionPage() {
     queryFn: () => listBidders(tenderId as number),
     enabled: tenderId !== null,
   });
-  const bidders = biddersQuery.data ?? [];
+  const allBidders = biddersQuery.data ?? [];
+  // Clarification letters are only relevant for bidders with an unresolved
+  // problem — "Qualified" bidders have nothing to clarify, so they're left
+  // out of this list (they still appear everywhere else on this page).
+  const bidders = allBidders.filter((b) => b.final_status !== "Qualified");
   const activeBidder = bidders.find((b) => b.id === selectedBidderId) ?? bidders[0];
 
   const complianceQuery = useQuery({
@@ -367,7 +371,11 @@ export default function ReportsCompletionPage() {
               ))}
             </select>
           ) : (
-            <p className="text-b2 text-neutral-75">No bidders added yet.</p>
+            <p className="text-b2 text-neutral-75">
+              {allBidders.length === 0
+                ? "No bidders added yet."
+                : "No bidders currently need clarification — all are Qualified."}
+            </p>
           )}
           {flaggedCount !== null && (
             <span className="text-b3 text-neutral-100">

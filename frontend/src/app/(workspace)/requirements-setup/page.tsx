@@ -452,10 +452,10 @@ export default function RequirementsSetupPage() {
             </div>
           )}
 
-          <div className="mb-3 overflow-hidden rounded-lg border border-neutral-50">
+          <div className="mb-3 max-h-[480px] overflow-auto rounded-lg border border-neutral-50">
             <table className="w-full text-left">
-              <thead>
-                <tr className="bg-neutral-50/60 text-label text-neutral-100">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-neutral-50 text-label text-neutral-100">
                   <th className="w-16 px-5 py-3 font-normal">QR</th>
                   <th className="w-20 px-5 py-3 font-normal">Clause</th>
                   <th className="w-24 px-5 py-3 font-normal">Page no.</th>
