@@ -13,6 +13,7 @@ Extract ONLY genuine, actionable requirements:
 4. Sentences & Clauses: Extract each numbered or lettered clause as one complete requirement item. Keep the clause and its full text intact. Do NOT split a single clause (such as clause 2.3 or 2.4) into multiple fragmented sub-rows, and do NOT duplicate requirements already mentioned.
 5. If technical parameters are presented in a table or list under a clause:
    - Extract EACH individual parameter as its own distinct requirement row with its parameter name and required value (e.g. "Rated voltage: 11 kV", "Rated short circuit breaking current: 25 kA for 3 seconds").
+   - Give each of these split-out rows its OWN unique sub-clause number by appending ".1", ".2", ".3", etc. to the parent clause (e.g. parent clause "3.4" with 5 table parameters becomes "3.4.1", "3.4.2", "3.4.3", "3.4.4", "3.4.5"). Never reuse the parent clause number unchanged across multiple rows — every row's "clause" value in the output must be unique.
 6. CRITICAL - WHAT NOT TO EXTRACT (FILTER OUT):
    - Do NOT extract section headings, chapter titles, table headers, or introductory lead-in phrases (e.g. "The following type tests shall have been carried out on the offered equipment:", "The equipment shall comply with the following technical parameters:").
    - Do NOT extract document metadata, boilerplate instructions, or notes about deviation sheets (e.g. "Any deviation from the above parameters shall be listed in the Deviation Sheet", "A Deviation Sheet marked NIL shall be taken to mean full compliance").

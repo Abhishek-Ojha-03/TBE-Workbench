@@ -308,6 +308,20 @@ def process_specification_document(
             seen_texts.add(norm_key)
             unique_reqs.append(r)
 
+    # 2b. Safety net: the prompt asks the AI to sub-number table parameters
+    # split out under the same parent clause (e.g. "3.4" -> "3.4.1", "3.4.2"),
+    # but if it still repeats the parent clause across rows, enforce
+    # uniqueness here so those rows don't all collapse onto one clause label.
+    clause_counts: dict = {}
+    for r in unique_reqs:
+        if r.clause:
+            clause_counts[r.clause] = clause_counts.get(r.clause, 0) + 1
+    clause_seen: dict = {}
+    for r in unique_reqs:
+        if r.clause and clause_counts[r.clause] > 1:
+            clause_seen[r.clause] = clause_seen.get(r.clause, 0) + 1
+            r.clause = f"{r.clause}.{clause_seen[r.clause]}"
+
     # 3. Save requirements: Qualification Requirements (QR) marked according to rules
     for r in unique_reqs:
         db_req = Requirement(
