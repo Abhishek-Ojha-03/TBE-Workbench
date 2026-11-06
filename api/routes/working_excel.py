@@ -4,6 +4,7 @@ orchestration, wrapping reading/ingest.py and ai/verifier.py unchanged.
 """
 import os
 import re
+import threading
 import zipfile
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
@@ -12,12 +13,13 @@ from sqlalchemy.orm import Session
 from api.deps import get_db
 from api.schemas import (
     IngestDocumentsResponse,
-    BulkZipIngestResult,
-    BulkZipIngestResponse,
+    BulkIngestStartedResponse,
+    BulkIngestProgressResponse,
     VerifyBidderResponse,
     VerifyAllBiddersResponse,
     BidderDocumentResponse,
 )
+from db.connection import SessionLocal
 from db.models import Bidder, Document, Finding
 from db.repository import get_tender_by_id
 from db.baseline_service import get_bidders_for_tender, get_latest_baseline, get_baseline_requirements
@@ -26,6 +28,7 @@ from reading.ingest import ingest_documents_concurrently
 from ai.verifier import verify_all_requirements_for_bidder, verify_all_bidders
 from ai.quota_guard import QuotaExhaustedError
 from rules.rule_engine import update_bidder_qualification_status
+from api import bulk_ingest_progress
 
 router = APIRouter(prefix="/tenders/{tender_id}", tags=["working-excel"])
 
@@ -69,17 +72,7 @@ async def ingest_bidder_documents(
     return IngestDocumentsResponse(ingested_count=count)
 
 
-@router.post("/bulk-zip-ingest", response_model=BulkZipIngestResponse)
-def bulk_zip_ingest(tender_id: int, db: Session = Depends(get_db)):
-    """
-    Matches the 'Extract & Ingest ALL Bidders from Saved ZIP' button —
-    reuses the ZIP already saved by the bulk-add-bidders-from-ZIP feature
-    on Requirements & Setup (same file, same path convention).
-    """
-    tender = get_tender_by_id(db, tender_id)
-    if not tender:
-        raise HTTPException(status_code=404, detail="Tender not found")
-
+def _load_tender_zip_bytes(tender_id: int) -> bytes:
     zip_filename = f"tender_{tender_id}_bidders.zip"
     zip_bytes = download_file(f"bidder_zips/{zip_filename}") if storage_enabled() else None
     if zip_bytes is None:
@@ -91,48 +84,85 @@ def bulk_zip_ingest(tender_id: int, db: Session = Depends(get_db)):
             )
         with open(zip_path, "rb") as f:
             zip_bytes = f.read()
+    return zip_bytes
 
-    zf = zipfile.ZipFile(__import__("io").BytesIO(zip_bytes))
-    folder_to_files: dict[str, list[str]] = {}
-    for name in zf.namelist():
-        parts = [p for p in name.replace("\\", "/").split("/") if p]
-        if len(parts) >= 2 and parts[-1].lower().endswith(".pdf"):
-            folder_to_files.setdefault(parts[-2], []).append(name)
 
-    existing_bidders = get_bidders_for_tender(db, tender_id)
-    results: List[BulkZipIngestResult] = []
+def _run_bulk_zip_ingest_in_background(tender_id: int, zip_bytes: bytes) -> None:
+    """Runs in a background thread with its own DB session — same reasoning
+    as specification.py/reports.py's equivalents: the request's session
+    closes as soon as the handler returns."""
+    bg_db = SessionLocal()
+    try:
+        zf = zipfile.ZipFile(__import__("io").BytesIO(zip_bytes))
+        folder_to_files: dict[str, list[str]] = {}
+        for name in zf.namelist():
+            parts = [p for p in name.replace("\\", "/").split("/") if p]
+            if len(parts) >= 2 and parts[-1].lower().endswith(".pdf"):
+                folder_to_files.setdefault(parts[-2], []).append(name)
 
-    for folder_name, pdf_paths in folder_to_files.items():
-        norm_folder = _normalize_bidder_name(folder_name)
-        matched_bidder = next(
-            (b for b in existing_bidders if _normalize_bidder_name(b.name) == norm_folder), None
-        )
+        existing_bidders = get_bidders_for_tender(bg_db, tender_id)
+        bulk_ingest_progress.start_progress(tender_id, total=len(folder_to_files))
 
-        if not matched_bidder:
-            results.append(
-                BulkZipIngestResult(
-                    bidder_name=folder_name, bidder_id=None, documents_ingested=0, matched=False
-                )
+        for folder_name, pdf_paths in folder_to_files.items():
+            norm_folder = _normalize_bidder_name(folder_name)
+            matched_bidder = next(
+                (b for b in existing_bidders if _normalize_bidder_name(b.name) == norm_folder), None
             )
-            continue
 
-        files_data = []
-        for pdf_path in pdf_paths:
-            try:
-                pdf_bytes = zf.read(pdf_path)
-                files_data.append((pdf_path.replace("\\", "/").split("/")[-1], pdf_bytes))
-            except Exception:
-                pass
+            if not matched_bidder:
+                bulk_ingest_progress.report_bidder_done(tender_id, folder_name, "No matching bidder — skipped")
+                continue
 
-        count = ingest_documents_concurrently(matched_bidder.id, files_data, max_workers=4) if files_data else 0
-        results.append(
-            BulkZipIngestResult(
-                bidder_name=matched_bidder.name, bidder_id=matched_bidder.id, documents_ingested=count, matched=True
+            files_data = []
+            for pdf_path in pdf_paths:
+                try:
+                    pdf_bytes = zf.read(pdf_path)
+                    files_data.append((pdf_path.replace("\\", "/").split("/")[-1], pdf_bytes))
+                except Exception:
+                    pass
+
+            count = ingest_documents_concurrently(matched_bidder.id, files_data, max_workers=4) if files_data else 0
+            bulk_ingest_progress.report_bidder_done(
+                tender_id, matched_bidder.name, f"{count} document(s) ingested"
             )
-        )
 
-    zf.close()
-    return BulkZipIngestResponse(results=results)
+        zf.close()
+        bulk_ingest_progress.finish_progress(tender_id)
+    except Exception as e:
+        bulk_ingest_progress.fail_progress(tender_id, str(e))
+    finally:
+        bg_db.close()
+
+
+@router.post("/bulk-zip-ingest", response_model=BulkIngestStartedResponse)
+def bulk_zip_ingest(tender_id: int, db: Session = Depends(get_db)):
+    """
+    Matches the 'Extract & Ingest ALL Bidders from Saved ZIP' button —
+    reuses the ZIP already saved by the bulk-add-bidders-from-ZIP feature
+    on Requirements & Setup (same file, same path convention). Starts the
+    extraction/ingestion in the background and returns immediately; poll
+    GET .../bulk-zip-ingest/progress for live per-bidder status.
+    """
+    tender = get_tender_by_id(db, tender_id)
+    if not tender:
+        raise HTTPException(status_code=404, detail="Tender not found")
+
+    zip_bytes = _load_tender_zip_bytes(tender_id)
+
+    thread = threading.Thread(
+        target=_run_bulk_zip_ingest_in_background, args=(tender_id, zip_bytes), daemon=True
+    )
+    thread.start()
+
+    return BulkIngestStartedResponse(status="running")
+
+
+@router.get("/bulk-zip-ingest/progress", response_model=BulkIngestProgressResponse)
+def get_bulk_zip_ingest_progress(tender_id: int):
+    state = bulk_ingest_progress.get_progress(tender_id)
+    if not state:
+        return BulkIngestProgressResponse(status="complete", completed=0, total=0, status_by_bidder={})
+    return BulkIngestProgressResponse(**state)
 
 
 def _finding_counts(db: Session, bidder_id: int, req_ids: List[int]):

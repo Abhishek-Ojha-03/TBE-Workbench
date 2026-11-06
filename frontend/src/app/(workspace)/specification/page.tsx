@@ -32,6 +32,21 @@ function CloseIcon() {
   );
 }
 
+// Three dots that blink one after another while something is processing.
+function BlinkingDots() {
+  return (
+    <span className="ml-1 inline-flex gap-0.5 align-middle">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="h-1.5 w-1.5 animate-pulse rounded-full bg-current"
+          style={{ animationDelay: `${i * 200}ms` }}
+        />
+      ))}
+    </span>
+  );
+}
+
 export default function SpecificationPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -185,12 +200,13 @@ export default function SpecificationPage() {
         <div>
           <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-violet-200 bg-violet-50/30 px-6 py-8 text-center">
             <UploadIcon />
-            <span className="text-h3 font-medium text-neutral-300">
+            <span className="flex items-center text-h3 font-medium text-neutral-300">
               {uploadMutation.isPending
-                ? "Uploading..."
+                ? "Uploading"
                 : isPolling
-                ? "Processing..."
+                ? "Processing"
                 : "Upload Specification PDF"}
+              {(uploadMutation.isPending || isPolling) && <BlinkingDots />}
             </span>
             <span className="text-b3 text-neutral-75">Upload limit 200 mb &nbsp;|&nbsp; File type .pdf</span>
             <input

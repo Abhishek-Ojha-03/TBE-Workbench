@@ -118,6 +118,18 @@ class BulkZipIngestResponse(BaseModel):
     results: List[BulkZipIngestResult]
 
 
+class BulkIngestStartedResponse(BaseModel):
+    status: str  # "running"
+
+
+class BulkIngestProgressResponse(BaseModel):
+    status: str  # "running" | "complete" | "error"
+    completed: int
+    total: int
+    status_by_bidder: dict[str, str]
+    error: Optional[str] = None
+
+
 class VerifyBidderResponse(BaseModel):
     bidder_id: int
     final_status: str

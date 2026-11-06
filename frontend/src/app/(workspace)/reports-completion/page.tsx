@@ -65,16 +65,16 @@ function ComplianceScoreAndRiskMatrix({ rows }: { rows: ComplianceRow[] }) {
   }
 
   return (
-    <details className="mb-4 rounded-md border border-neutral-50 p-3">
-      <summary className="cursor-pointer text-b3 font-medium text-neutral-200">
+    <details className="mb-8 rounded-lg border border-neutral-50 p-5" open>
+      <summary className="cursor-pointer text-h3 text-neutral-300">
         Preview: Compliance Scores &amp; Risk Matrix
       </summary>
       <div className="mt-4">
         <p className="mb-2 text-b3 font-medium text-neutral-300">Compliance Score &amp; Risk Summary</p>
-        <div className="mb-5 overflow-hidden rounded-lg border border-neutral-50">
+        <div className="mb-5 max-h-[400px] overflow-auto rounded-lg border border-neutral-50">
           <table className="w-full text-left">
-            <thead>
-              <tr className="bg-neutral-50/60 text-label text-neutral-100">
+            <thead className="sticky top-0 z-10">
+              <tr className="bg-neutral-50 text-label text-neutral-100">
                 <th className="px-4 py-2 font-normal">Bidder</th>
                 <th className="px-4 py-2 font-normal">Total Clauses</th>
                 <th className="px-4 py-2 font-normal">Complied</th>
@@ -129,13 +129,11 @@ function GenerateCard({
   description,
   buttonLabel,
   onGenerate,
-  extra,
 }: {
   title: string;
   description: React.ReactNode;
   buttonLabel: string;
   onGenerate: () => Promise<void>;
-  extra?: React.ReactNode;
 }) {
   const [state, setState] = useState<"idle" | "generating" | "done" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -144,7 +142,6 @@ function GenerateCard({
     <div className="rounded-lg border border-neutral-50 p-5">
       <h3 className="mb-2 text-h3 text-neutral-300">{title}</h3>
       <div className="mb-4 text-b3 text-neutral-75">{description}</div>
-      {extra}
       <Button
         variant="primary"
         className="w-full justify-center"
@@ -303,46 +300,8 @@ export default function ReportsCompletionPage() {
         }}
       />
 
-      {/* Generate MOM + TER */}
-      <div className="mb-8 grid grid-cols-2 gap-6">
-        <GenerateCard
-          title="Generate TBE MOM (.docx)"
-          buttonLabel="Generate TBE MOM"
-          onGenerate={() => downloadMom(tenderId as number)}
-          description={
-            <>
-              Compiles the official Minutes of Meeting in standard format:
-              <ul className="mt-2 list-disc space-y-1 pl-5">
-                <li>Meeting committee members and venue</li>
-                <li>AI-synthesized executive proceeding summary</li>
-                <li>AI-synthesized technical compliance scoring table (per-bidder %)</li>
-                <li>Strategic negotiation &amp; discussion talking points for committee</li>
-                <li>Signature blocks</li>
-              </ul>
-            </>
-          }
-          extra={<ComplianceScoreAndRiskMatrix rows={complianceRows} />}
-        />
-
-        <GenerateCard
-          title="Generate TBE Report (.docx)"
-          buttonLabel="Generate TER Report"
-          onGenerate={() => downloadTer(tenderId as number)}
-          description={
-            <>
-              Compiles the full Technical Evaluation Report:
-              <ul className="mt-2 list-disc space-y-1 pl-5">
-                <li>Cover page &amp; index</li>
-                <li>Executive technical summary</li>
-                <li>Full comparison matrix (clauses, specified ratings vs. bidder offerings)</li>
-                <li>Final qualification recommendation</li>
-              </ul>
-            </>
-          }
-        />
-      </div>
-
-      {/* Clarification Management */}
+      {/* Clarification Management — moved above the report generation so
+          outstanding clarifications get resolved before MOM/TER are pulled. */}
       <div className="mb-8 rounded-lg border border-neutral-50 p-5">
         <h3 className="mb-2 text-h3 text-neutral-300">Clarification Management &amp; Delta Re-Verification</h3>
         <p className="mb-4 text-b3 text-neutral-75">
@@ -509,6 +468,47 @@ export default function ReportsCompletionPage() {
             )}
           </div>
         </details>
+      </div>
+
+      {/* Compliance preview — standalone, kept separate from the MOM card */}
+      <ComplianceScoreAndRiskMatrix rows={complianceRows} />
+
+      {/* Generate MOM + TER */}
+      <div className="mb-8 grid grid-cols-2 gap-6">
+        <GenerateCard
+          title="Generate TBE MOM (.docx)"
+          buttonLabel="Generate TBE MOM"
+          onGenerate={() => downloadMom(tenderId as number)}
+          description={
+            <>
+              Compiles the official Minutes of Meeting in standard format:
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                <li>Meeting committee members and venue</li>
+                <li>AI-synthesized executive proceeding summary</li>
+                <li>AI-synthesized technical compliance scoring table (per-bidder %)</li>
+                <li>Strategic negotiation &amp; discussion talking points for committee</li>
+                <li>Signature blocks</li>
+              </ul>
+            </>
+          }
+        />
+
+        <GenerateCard
+          title="Generate TBE Report (.docx)"
+          buttonLabel="Generate TER Report"
+          onGenerate={() => downloadTer(tenderId as number)}
+          description={
+            <>
+              Compiles the full Technical Evaluation Report:
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                <li>Cover page &amp; index</li>
+                <li>Executive technical summary</li>
+                <li>Full comparison matrix (clauses, specified ratings vs. bidder offerings)</li>
+                <li>Final qualification recommendation</li>
+              </ul>
+            </>
+          }
+        />
       </div>
 
       {/* Complete & Archive */}

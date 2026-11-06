@@ -241,6 +241,7 @@ export default function RequirementsSetupPage() {
   const [bidderFilter, setBidderFilter] = useState<"all" | "qualified" | "unqualified">("all");
   const [showAddBidder, setShowAddBidder] = useState(false);
   const [showVersionDropdown, setShowVersionDropdown] = useState(false);
+  const [showMandatoryDocs, setShowMandatoryDocs] = useState(false);
   // User's explicit pick, if any — null means "follow the latest version"
   // rather than needing an effect to sync a default once versions load.
   const [explicitVersion, setExplicitVersion] = useState<number | null>(null);
@@ -440,6 +441,43 @@ export default function RequirementsSetupPage() {
         {/* Left: Requirements table */}
         <div>
           <h3 className="mb-4 text-h3 text-neutral-300">Technical &amp; Qualification Requirements</h3>
+
+          {/* Mandatory Tender Documents Review — dropdown */}
+          <div className="relative mb-3">
+            <button
+              type="button"
+              onClick={() => setShowMandatoryDocs((v) => !v)}
+              className="flex w-full items-center justify-between rounded-md border border-neutral-50 px-4 py-2.5 text-b2 font-medium text-neutral-300"
+            >
+              Mandatory Tender Documents Review
+              <ChevronIcon />
+            </button>
+            {showMandatoryDocs && (
+              <div className="mt-1 rounded-md border border-neutral-50 bg-white p-4">
+                <p className="mb-2 text-b2 font-medium text-neutral-300">
+                  Every bidder must submit these documents to qualify:
+                </p>
+                <ul className="list-disc space-y-2 pl-5 text-b3 text-neutral-200">
+                  <li>
+                    <span className="font-medium text-neutral-300">Technical Offer:</span> The tender
+                    specification signed &amp; stamped on each page by bidder.
+                  </li>
+                  <li>
+                    <span className="font-medium text-neutral-300">Deviation Sheet:</span> Compliant ONLY
+                    if marked NIL deviations. Any deviation marked must be evaluated.
+                  </li>
+                  <li>
+                    <span className="font-medium text-neutral-300">Type Test Certificates:</span> Valid
+                    accredited lab test reports (CPRI / ERDA / equivalent).
+                  </li>
+                  <li>
+                    <span className="font-medium text-neutral-300">Performance Certificates:</span> Utility
+                    operational track record proof.
+                  </li>
+                </ul>
+              </div>
+            )}
+          </div>
 
           {/* Version selector */}
           {versions.length > 0 && selectedVersionObj && (
@@ -717,33 +755,8 @@ export default function RequirementsSetupPage() {
           )}
         </div>
 
-        {/* Right: Mandatory Docs + Bidders */}
+        {/* Right: Bidders */}
         <div className="flex flex-col gap-6">
-          <div className="rounded-lg border border-neutral-50 p-5">
-            <h3 className="mb-3 text-h3 text-neutral-300">Mandatory Tender Documents Review</h3>
-            <p className="mb-2 text-b2 font-medium text-neutral-300">
-              Every bidder must submit these documents to qualify:
-            </p>
-            <ul className="list-disc space-y-2 pl-5 text-b3 text-neutral-200">
-              <li>
-                <span className="font-medium text-neutral-300">Technical Offer:</span> The tender specification signed
-                &amp; stamped on each page by bidder.
-              </li>
-              <li>
-                <span className="font-medium text-neutral-300">Deviation Sheet:</span> Compliant ONLY if marked NIL
-                deviations. Any deviation marked must be evaluated.
-              </li>
-              <li>
-                <span className="font-medium text-neutral-300">Type Test Certificates:</span> Valid accredited lab test
-                reports (CPRI / ERDA / equivalent).
-              </li>
-              <li>
-                <span className="font-medium text-neutral-300">Performance Certificates:</span> Utility operational
-                track record proof.
-              </li>
-            </ul>
-          </div>
-
           <div className="overflow-hidden rounded-lg border border-neutral-50">
             <div className="flex items-center justify-between bg-violet-400 px-5 py-3 text-white">
               <span className="text-b1 font-medium">
@@ -771,7 +784,7 @@ export default function RequirementsSetupPage() {
               )}
               {!biddersQuery.isLoading && visibleBidders.length === 0 && (
                 <div className="px-5 py-6 text-center text-b3 text-neutral-75">
-                  {bidders.length === 0 ? "No bidders added yet." : "No bidders match this filter."}
+                  {bidders.length === 0 ? "No bidders added yet. Add bidders." : "No bidders match this filter."}
                 </div>
               )}
               {visibleBidders.map((b) => (

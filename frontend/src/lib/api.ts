@@ -266,21 +266,26 @@ export function ingestBidderDocuments(
   });
 }
 
-export interface BulkZipIngestResult {
-  bidder_name: string;
-  bidder_id: number | null;
-  documents_ingested: number;
-  matched: boolean;
+export interface BulkIngestStartedResponse {
+  status: "running";
 }
 
-export interface BulkZipIngestResponse {
-  results: BulkZipIngestResult[];
+export interface BulkIngestProgressResponse {
+  status: "running" | "complete" | "error";
+  completed: number;
+  total: number;
+  status_by_bidder: Record<string, string>;
+  error?: string | null;
 }
 
-export function bulkZipIngest(tenderId: number): Promise<BulkZipIngestResponse> {
-  return request<BulkZipIngestResponse>(`/tenders/${tenderId}/bulk-zip-ingest`, {
+export function bulkZipIngest(tenderId: number): Promise<BulkIngestStartedResponse> {
+  return request<BulkIngestStartedResponse>(`/tenders/${tenderId}/bulk-zip-ingest`, {
     method: "POST",
   });
+}
+
+export function getBulkZipIngestProgress(tenderId: number): Promise<BulkIngestProgressResponse> {
+  return request<BulkIngestProgressResponse>(`/tenders/${tenderId}/bulk-zip-ingest/progress`);
 }
 
 export interface VerifyBidderResult {

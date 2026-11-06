@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import WorkspaceHeader from "@/components/layout/workspace-header";
 import Button from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
   listBidderDocuments,
   getFindings,
   bulkZipIngest,
+  getBulkZipIngestProgress,
   ingestBidderDocuments,
   verifyBidder,
   qualifyBidder,
@@ -94,6 +95,18 @@ export default function WorkingExcelPage() {
   const [verifyAllProgress, setVerifyAllProgress] = useState<
     { completed: number; total: number; statusByBidder: Record<number, string> } | null
   >(null);
+  // Flips true once a bulk ingest has completed this session — gates the
+  // "Run AI Verification for ALL Bidders" button so it's greyed out until
+  // there's something ingested to verify.
+  const [hasIngestedAll, setHasIngestedAll] = useState(false);
+  const [bulkIngestStarted, setBulkIngestStarted] = useState(false);
+
+  const bulkIngestProgressQuery = useQuery({
+    queryKey: ["bulk-ingest-progress", tenderId],
+    queryFn: () => getBulkZipIngestProgress(tenderId as number),
+    enabled: tenderId !== null && bulkIngestStarted,
+    refetchInterval: (query) => (query.state.data?.status === "running" ? 1500 : false),
+  });
 
   const biddersQuery = useQuery({
     queryKey: ["bidders", tenderId],
@@ -110,17 +123,33 @@ export default function WorkingExcelPage() {
 
   const bulkZipIngestMutation = useMutation({
     mutationFn: () => bulkZipIngest(tenderId as number),
-    onSuccess: (res) => {
-      const summary = res.results
-        .map((r) => `${r.bidder_name}: ${r.matched ? `${r.documents_ingested} docs ingested` : "no matching bidder"}`)
-        .join("\n");
-      queryClient.invalidateQueries({ queryKey: ["bidder-documents", tenderId] });
-      alert(`Bulk ZIP ingestion complete:\n\n${summary}`);
+    onSuccess: () => {
+      setBulkIngestStarted(true);
     },
     onError: (err) => {
       alert(err instanceof ApiError ? err.message : "Bulk ZIP ingestion failed.");
     },
   });
+
+  // Reflects the bulk ingest's completion into the gate for "Run AI
+  // Verification for ALL Bidders" and refreshes the document lists once —
+  // a ref guards against re-firing while status stays "complete" across
+  // unrelated re-renders, same pattern used for specification progress.
+  const hasHandledBulkIngestRef = useRef<string | null>(null);
+  useEffect(() => {
+    const status = bulkIngestProgressQuery.data?.status;
+    if (status === "complete" && hasHandledBulkIngestRef.current !== "complete") {
+      hasHandledBulkIngestRef.current = "complete";
+      setHasIngestedAll(true);
+      queryClient.invalidateQueries({ queryKey: ["bidder-documents", tenderId] });
+    }
+    if (status === "error") {
+      hasHandledBulkIngestRef.current = "error";
+    }
+    if (status === "running") {
+      hasHandledBulkIngestRef.current = null;
+    }
+  }, [bulkIngestProgressQuery.data?.status, queryClient, tenderId]);
 
   const bidders = biddersQuery.data ?? [];
   const bidder = bidders[activeBidder];
@@ -228,12 +257,8 @@ export default function WorkingExcelPage() {
       // bidders come from that one ZIP.
       return bulkZipIngest(tenderId as number);
     },
-    onSuccess: (res) => {
-      const summary = res.results
-        .map((r) => `${r.bidder_name}: ${r.matched ? `${r.documents_ingested} docs` : "no match"}`)
-        .join("\n");
-      queryClient.invalidateQueries({ queryKey: ["bidder-documents", tenderId] });
-      alert(`Ingested staged documents for all bidders:\n\n${summary}`);
+    onSuccess: () => {
+      setBulkIngestStarted(true);
     },
     onError: (err) => {
       alert(err instanceof ApiError ? err.message : "Ingestion failed.");
@@ -277,6 +302,12 @@ export default function WorkingExcelPage() {
   const reviewCount = totalClauses - compliedCount - notCompliedCount;
   const accuracyPct = totalClauses > 0 ? Math.round((compliedCount / totalClauses) * 1000) / 10 : 0;
 
+  // "Verified" = AI verification has run for at least one bidder, reflected
+  // in final_status moving off the default "Pending" — used to gate the
+  // Working Excel download, since it only makes sense once there's
+  // something verified to fill it with.
+  const hasVerifiedAny = bidders.some((b) => b.final_status !== "Pending");
+
   const ingestTimeDisplay = bidder && ingestTimes[bidder.id] !== undefined ? `${ingestTimes[bidder.id]}s` : "—";
   const verifyTimeDisplay =
     bidder && verifyTimes[bidder.id] !== undefined
@@ -296,24 +327,6 @@ export default function WorkingExcelPage() {
         }}
       />
 
-      {/* Master Matrix */}
-      <div className="mb-6 flex items-center justify-between rounded-lg border border-neutral-50 p-5">
-        <div>
-          <h3 className="text-h3 text-neutral-300">Working TBE Master Matrix</h3>
-          <p className="text-b3 text-neutral-75">
-            Pre-filled spreadsheet with all requirements, ready for offline annotation.
-          </p>
-        </div>
-        <Button
-          variant="primary"
-          disabled={downloadExcelMutation.isPending}
-          onClick={() => downloadExcelMutation.mutate()}
-        >
-          {downloadExcelMutation.isPending ? "Generating..." : "Generate & Download Working Excel"}
-          {!downloadExcelMutation.isPending && <DownloadIcon />}
-        </Button>
-      </div>
-
       {/* Bulk ZIP ingestion */}
       <div className="mb-6 rounded-lg border border-neutral-50 p-5">
         <h3 className="mb-2 text-h3 text-neutral-300">Bulk Ingest ALL Bidders via ZIP File</h3>
@@ -326,8 +339,37 @@ export default function WorkingExcelPage() {
           disabled={bulkZipIngestMutation.isPending}
           onClick={() => bulkZipIngestMutation.mutate()}
         >
-          {bulkZipIngestMutation.isPending ? "Ingesting..." : "Extract & Ingest ALL Bidders from Saved ZIP"}
+          {bulkZipIngestMutation.isPending ? "Starting..." : "Extract & Ingest ALL Bidders from Saved ZIP"}
         </Button>
+
+        {bulkIngestStarted && bulkIngestProgressQuery.data && (
+          <div className="mt-4 rounded-md border border-neutral-50 p-4">
+            <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-neutral-50">
+              <div
+                className="h-2 rounded-full bg-violet-300 transition-all"
+                style={{
+                  width: `${
+                    (bulkIngestProgressQuery.data.completed / Math.max(bulkIngestProgressQuery.data.total, 1)) * 100
+                  }%`,
+                }}
+              />
+            </div>
+            <p className="mb-2 text-b3 text-neutral-75">
+              {bulkIngestProgressQuery.data.status === "running"
+                ? `Ingesting ${bulkIngestProgressQuery.data.completed} / ${bulkIngestProgressQuery.data.total} bidder folders...`
+                : bulkIngestProgressQuery.data.status === "complete"
+                ? `Done — ${bulkIngestProgressQuery.data.completed} / ${bulkIngestProgressQuery.data.total} bidder folders processed.`
+                : `Failed: ${bulkIngestProgressQuery.data.error ?? "unknown error"}`}
+            </p>
+            <div className="flex flex-col gap-1">
+              {Object.entries(bulkIngestProgressQuery.data.status_by_bidder).map(([name, status]) => (
+                <p key={name} className="text-b3 text-neutral-200">
+                  <span className="font-medium text-neutral-300">{name}:</span> {status}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Bidder Document Ingestion & AI Verification */}
@@ -339,12 +381,13 @@ export default function WorkingExcelPage() {
           disabled={ingestAllMutation.isPending}
           onClick={() => ingestAllMutation.mutate()}
         >
-          {ingestAllMutation.isPending ? "Ingesting..." : "Ingest ALL Staged Documents for ALL Bidders"}
+          {ingestAllMutation.isPending ? "Starting..." : "Ingest ALL Staged Documents for ALL Bidders"}
         </Button>
         <Button
           variant="primary"
           className="flex-1 justify-center"
-          disabled={verifyAllMutation.isPending}
+          disabled={!hasIngestedAll || verifyAllMutation.isPending}
+          title={!hasIngestedAll ? "Ingest bidder documents first — above — before running verification." : undefined}
           onClick={() => verifyAllMutation.mutate()}
         >
           {verifyAllMutation.isPending ? "Verifying..." : "Run AI Verification for ALL Bidders"}
@@ -593,6 +636,28 @@ export default function WorkingExcelPage() {
           </div>
         </>
       )}
+
+      {/* Working TBE Master Matrix — only meaningful once verification has
+          produced findings to fill it with, so it stays unresponsive until
+          "Run AI Verification for ALL Bidders" (or at least one bidder) has
+          completed. */}
+      <div className="mt-6 flex items-center justify-between rounded-lg border border-neutral-50 p-5">
+        <div>
+          <h3 className="text-h3 text-neutral-300">Working TBE Master Matrix</h3>
+          <p className="text-b3 text-neutral-75">
+            Pre-filled spreadsheet with all requirements, ready for offline annotation.
+          </p>
+        </div>
+        <Button
+          variant="primary"
+          disabled={!hasVerifiedAny || downloadExcelMutation.isPending}
+          title={!hasVerifiedAny ? "Run AI Verification above first — the Excel needs findings to fill in." : undefined}
+          onClick={() => downloadExcelMutation.mutate()}
+        >
+          {downloadExcelMutation.isPending ? "Generating..." : "Generate & Download Working Excel"}
+          {!downloadExcelMutation.isPending && <DownloadIcon />}
+        </Button>
+      </div>
     </>
   );
 }

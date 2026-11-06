@@ -1,6 +1,6 @@
 interface BadgeProps {
   children: React.ReactNode;
-  tone?: "violet" | "neutral";
+  tone?: "violet" | "neutral" | "orange";
   className?: string;
 }
 
@@ -8,6 +8,8 @@ export default function Badge({ children, tone = "violet", className = "" }: Bad
   const toneClasses =
     tone === "violet"
       ? "bg-violet-50 text-violet-300"
+      : tone === "orange"
+      ? "bg-orange-50 text-orange-500"
       : "bg-neutral-50 text-neutral-200";
 
   return (

@@ -19,9 +19,23 @@ import {
 } from "@/lib/api";
 import { useActiveTenderStore } from "@/lib/store";
 
-function badgeToneForStatus(status: string | null): "violet" | "neutral" {
+function badgeToneForStatus(status: string | null): "violet" | "neutral" | "orange" {
   if (!status) return "neutral";
-  return status.toLowerCase() === "complied" ? "violet" : "neutral";
+  const lower = status.toLowerCase();
+  if (lower === "complied") return "violet";
+  if (lower.includes("review")) return "orange";
+  return "neutral";
+}
+
+// Needs Human Review and Not Complied clauses surface first so engineers
+// don't have to hunt through Complied rows to find what needs attention;
+// Complied rows sink to the bottom as "nothing to do here."
+function reviewPriority(f: Finding): number {
+  const status = (f.engineer_status ?? f.ai_status ?? "").toLowerCase();
+  if (status.includes("review")) return 0;
+  if (status === "not complied") return 1;
+  if (status === "complied") return 3;
+  return 2;
 }
 
 function FindingCard({
@@ -261,7 +275,7 @@ export default function VerificationResultsPage() {
     );
   }
 
-  const findings = findingsQuery.data ?? [];
+  const findings = [...(findingsQuery.data ?? [])].sort((a, b) => reviewPriority(a) - reviewPriority(b));
   const isMutating = confirmMutation.isPending || overrideMutation.isPending || flagMutation.isPending;
 
   return (

@@ -272,6 +272,12 @@ def process_specification_document(
     # b) Or it is an exact repeat of (clause, text)
     # Never truncate or strip parameter prefixes (e.g. "Rated voltage: 11 kV" vs "Rated frequency: 50 Hz")
     seen_texts = set()
+    # Catches near-duplicate re-extraction of the same clause across
+    # overlapping/stitched page boundaries — same clause number, same
+    # opening words, but not byte-identical text, so seen_texts alone
+    # misses it and the clause gets over-counted (e.g. 28 extracted for a
+    # spec that only has 24 genuine clauses).
+    seen_clause_prefixes = set()
     unique_reqs = []
 
     # Patterns for pure headings, lead-in phrases, and boilerplate to exclude
@@ -304,9 +310,17 @@ def process_specification_document(
         
         # If clause is given, include clause in key for bullet points/clauses,
         # but if clause is None/empty, match strictly by text
-        if norm_key not in seen_texts:
-            seen_texts.add(norm_key)
-            unique_reqs.append(r)
+        if norm_key in seen_texts:
+            continue
+
+        if r.clause:
+            clause_prefix_key = f"{r.clause.strip().lower()}|{norm_key[:40]}"
+            if clause_prefix_key in seen_clause_prefixes:
+                continue
+            seen_clause_prefixes.add(clause_prefix_key)
+
+        seen_texts.add(norm_key)
+        unique_reqs.append(r)
 
     # 2b. Safety net: the prompt asks the AI to sub-number table parameters
     # split out under the same parent clause (e.g. "3.4" -> "3.4.1", "3.4.2"),
