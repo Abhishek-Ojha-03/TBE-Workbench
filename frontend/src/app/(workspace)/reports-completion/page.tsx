@@ -108,7 +108,12 @@ function ComplianceScoreAndRiskMatrix({ rows }: { rows: ComplianceRow[] }) {
         <div className="flex flex-col gap-3">
           {rows.map((r) => (
             <div key={r.bidder_id} className="flex items-center gap-3">
-              <span className="w-24 shrink-0 text-b3 text-neutral-200">{r.bidder_name}</span>
+              <span
+                className="w-28 shrink-0 truncate text-b3 text-neutral-200"
+                title={r.bidder_name}
+              >
+                {r.bidder_name}
+              </span>
               <div className="h-5 flex-1 rounded-full bg-neutral-50">
                 <div
                   className="h-5 rounded-full bg-violet-300"
@@ -140,8 +145,15 @@ function GenerateCard({
 
   return (
     <div className="rounded-lg border border-neutral-50 p-5">
-      <h3 className="mb-2 text-h3 text-neutral-300">{title}</h3>
-      <div className="mb-4 text-b3 text-neutral-75">{description}</div>
+      <h3 className="group relative mb-4 flex w-fit items-center gap-1.5 text-h3 text-neutral-300">
+        {title}
+        <span className="flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-neutral-100 text-[10px] font-medium text-neutral-100">
+          ?
+        </span>
+        <div className="invisible absolute left-0 top-full z-20 mt-2 w-80 -translate-y-1 rounded-md border border-neutral-50 bg-white p-4 text-b3 font-normal text-neutral-75 opacity-0 shadow-lg transition-all group-hover:visible group-hover:translate-y-0 group-hover:opacity-100">
+          {description}
+        </div>
+      </h3>
       <Button
         variant="primary"
         className="w-full justify-center"
